@@ -14,11 +14,15 @@ from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 def fetch_gold_data():
-    gold = yf.Ticker("GC=F")
-    # ดึงข้อมูลแท่งเทียน 1 นาที ย้อนหลัง 1 วัน
+    # ใช้ "XAUUSD=X" ซึ่งเป็นราคา Gold Spot สากล (ตรงกับ FXCM/OANDA บน TradingView)
+    gold = yf.Ticker("XAUUSD=X")
     df = gold.history(period="1d", interval="1m")
+    
+    # กรณีวันเสาร์-อาทิตย์ หรือช่วงตลาดปิด ถ้า 1m ไม่มีข้อมูล ให้สำรองด้วย 5m
+    if df.empty:
+        df = gold.history(period="5d", interval="5m")
+        
     df = df.reset_index()
-    # แปลงชื่อคอลัมน์ให้ตรงกับโค้ดคำนวณเดิม
     df = df.rename(columns={
         "Open": "open",
         "High": "high",
@@ -27,7 +31,6 @@ def fetch_gold_data():
         "Volume": "vol"
     })
     return df
-
 exchange = ccxt.binance()
 symbol = "PAXG/USDT"  # ทองคำ XAUUSDT บน Binance
 timeframe = "1m"
