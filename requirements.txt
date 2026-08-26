@@ -1,5 +1,5 @@
 httpx
 pandas
-pandas_ta
+numpy
 ccxt
 apscheduler
