@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()  
 
+import yfinance as yf
 import os
 import time
 import asyncio
@@ -11,6 +12,21 @@ import pandas as pd
 import numpy as np
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+def fetch_gold_data():
+    gold = yf.Ticker("GC=F")
+    # ดึงข้อมูลแท่งเทียน 1 นาที ย้อนหลัง 1 วัน
+    df = gold.history(period="1d", interval="1m")
+    df = df.reset_index()
+    # แปลงชื่อคอลัมน์ให้ตรงกับโค้ดคำนวณเดิม
+    df = df.rename(columns={
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Volume": "vol"
+    })
+    return df
 
 exchange = ccxt.binance()
 symbol = "PAXG/USDT"  # ทองคำ XAUUSDT บน Binance
@@ -97,8 +113,8 @@ def calculate_supertrend(df, period=7, multiplier=1.2):
 async def check_signal():
     global last_signal
     try:
-        bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=100)
-        df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
+        # เรียกข้อมูลจาก Yahoo Finance แทน ccxt
+        df = fetch_gold_data()
 
         df['rsi'] = calculate_rsi(df['close'], period=14)
         df = calculate_supertrend(df, period=7, multiplier=1.2)
@@ -111,7 +127,7 @@ async def check_signal():
         curr_dir = closed_bar['direction']
         prev_dir = prev_bar['direction']
 
-        print(f"[{time.strftime('%H:%M:%S')}] Checked: Price={close_price:.2f}, RSI={rsi_val:.1f}, Dir={curr_dir}")
+        print(f"[{time.strftime('%H:%M:%S')}] Checked XAUUSD: Price={close_price:.2f}, RSI={rsi_val:.1f}, Dir={curr_dir}")
 
         if prev_dir == -1 and curr_dir == 1 and rsi_val > 50:
             if last_signal != "BUY":
@@ -125,6 +141,8 @@ async def check_signal():
                 msg = f"🔴 SELL Signal XAUUSD\nPrice: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
                 await send_line_message(msg)
 
+    except Exception as e:
+        print(f"Check error: {e}")
     except Exception as e:
         print(f"Check error: {e}")
 
