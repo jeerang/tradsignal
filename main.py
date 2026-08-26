@@ -8,9 +8,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 LINE_ACCESS_TOKEN = os.getenv("fbL8B+e8voao+f41Nx5DC9pT1GtsmwhlAQTN+rPFaNLQqPWCo7KyJmNNFMMAjIgc62xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLt2UFcm9LEi7KwgH5yZ4V6zjkudUdjEwCyxYQt6HELdBQdB04t89/1O/w1cDnyilFU=")
 LINE_USER_ID = os.getenv("U4776c4283302343cebd85ab4cefbf2f9")
-
 exchange = ccxt.binance()
-symbol = "PAXG/USDT"  # ทองคำ Gold Spot บน Binance (1 PAXG = 1 troy oz Gold)
+symbol = "PAXG/USDT"  # สกุลเงินทองคำบน Binance (1 PAXG = 1 troy oz Gold)
 timeframe = "1m"
 
 last_signal = None
@@ -25,55 +24,116 @@ def send_line_message(text: str):
         "messages": [{"type": "text", "text": text}]
     }
     try:
-        with httpx.Client() as client:
-            client.post("https://api.line.me/v2/bot/message/push", headers=headers, json=body)
+        with httpx.Client(timeout=10.0) as client:
+            res = client.post("https://api.line.me/v2/bot/message/push", headers=headers, json=body)
+            print(f"LINE Response: {res.status_code}")
     except Exception as e:
         print(f"Error sending LINE message: {e}")
+
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.rolling(window=period, min_periods=period).mean()
+    avg_loss = loss.rolling(window=period, min_periods=period).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+def calculate_supertrend(df, period=7, multiplier=1.2):
+    high = df['high']
+    low = df['low']
+    close = df['close']
+    
+    # คำนวณ ATR
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low - close.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean()
+
+    hl2 = (high + low) / 2
+    basic_upper = hl2 + (multiplier * atr)
+    basic_lower = hl2 - (multiplier * atr)
+
+    final_upper = np.zeros(len(df))
+    final_lower = np.zeros(len(df))
+    supertrend = np.zeros(len(df))
+    direction = np.zeros(len(df))  # 1 = ขาขึ้น (BUY), -1 = ขาลง (SELL)
+
+    for i in range(1, len(df)):
+        # คำนวณ Upper Band
+        if basic_upper.iloc[i] < final_upper[i-1] or close.iloc[i-1] > final_upper[i-1]:
+            final_upper[i] = basic_upper.iloc[i]
+        else:
+            final_upper[i] = final_upper[i-1]
+
+        # คำนวณ Lower Band
+        if basic_lower.iloc[i] > final_lower[i-1] or close.iloc[i-1] < final_lower[i-1]:
+            final_lower[i] = basic_lower.iloc[i]
+        else:
+            final_lower[i] = final_lower[i-1]
+
+        # คำนวณทิศทาง Trend
+        if direction[i-1] == 1:
+            if close.iloc[i] < final_lower[i]:
+                direction[i] = -1
+                supertrend[i] = final_upper[i]
+            else:
+                direction[i] = 1
+                supertrend[i] = final_lower[i]
+        else:
+            if close.iloc[i] > final_upper[i]:
+                direction[i] = 1
+                supertrend[i] = final_lower[i]
+            else:
+                direction[i] = -1
+                supertrend[i] = final_upper[i]
+
+    df['supertrend'] = supertrend
+    df['direction'] = direction
+    return df
 
 def check_signal():
     global last_signal
     try:
-        # ดึงข้อมูลแท่งเทียน 100 แท่งล่าสุด
         bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=100)
         df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
-        
-        # คำนวณ RSI (Period 14)
-        df['rsi'] = ta.rsi(df['close'], length=14)
-        
-        # คำนวณ Supertrend (Period 7, Multiplier 1.2)
-        st_data = ta.supertrend(df['high'], df['low'], df['close'], length=7, multiplier=1.2)
-        df['st_direction'] = st_data['SUPERTd_7_1.2']  # 1 = ขาขึ้น (BUY), -1 = ขาลง (SELL)
-        
-        # ดึงค่าของแท่งเทียนที่เพิ่งปิดสมบูรณ์ (แท่งรองสุดท้าย index -2)
+
+        df['rsi'] = calculate_rsi(df['close'], period=14)
+        df = calculate_supertrend(df, period=7, multiplier=1.2)
+
+        # ตรวจสอบแท่งเทียนที่เพิ่งปิด (index -2)
         closed_bar = df.iloc[-2]
         prev_bar = df.iloc[-3]
-        
+
         close_price = closed_bar['close']
         rsi_val = closed_bar['rsi']
-        current_dir = closed_bar['st_direction']
-        prev_dir = prev_bar['st_direction']
-        
-        # ตรวจสอบเงื่อนไขตัดข้าม (Cross)
-        if prev_dir == -1 and current_dir == 1 and rsi_val > 50:
+        curr_dir = closed_bar['direction']
+        prev_dir = prev_bar['direction']
+
+        print(f"[{time.strftime('%H:%M:%S')}] Checked: Price={close_price:.2f}, RSI={rsi_val:.1f}, Dir={curr_dir}")
+
+        # BUY: Supertrend สลับจาก -1 เป็น 1 และ RSI > 50
+        if prev_dir == -1 and curr_dir == 1 and rsi_val > 50:
             if last_signal != "BUY":
                 last_signal = "BUY"
                 msg = f"🟢 BUY Signal XAUUSD\nEntry: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
                 send_line_message(msg)
-                print("BUY Signal Sent!")
-                
-        elif prev_dir == 1 and current_dir == -1 and rsi_val < 50:
+                print(">>> BUY Signal Sent to LINE!")
+
+        # SELL: Supertrend สลับจาก 1 เป็น -1 และ RSI < 50
+        elif prev_dir == 1 and curr_dir == -1 and rsi_val < 50:
             if last_signal != "SELL":
                 last_signal = "SELL"
                 msg = f"🔴 SELL Signal XAUUSD\nEntry: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
                 send_line_message(msg)
-                print("SELL Signal Sent!")
-                
+                print(">>> SELL Signal Sent to LINE!")
+
     except Exception as e:
         print(f"Check error: {e}")
 
 if __name__ == "__main__":
-    print("🚀 Bot Started - Checking Gold Signals every minute...")
+    print("🚀 Bot Started - Scanning Gold Signals 24/7...")
     scheduler = BlockingScheduler()
-    # รันตรวจสอบทุกๆ นาที
     scheduler.add_job(check_signal, 'cron', second='5')
     scheduler.start()
