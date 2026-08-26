@@ -1,7 +1,3 @@
-from dotenv import load_dotenv
-load_dotenv()  
-
-import yfinance as yf
 import os
 import time
 import asyncio
@@ -14,25 +10,17 @@ from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 def fetch_gold_data():
-    # ใช้ "XAUUSD=X" ซึ่งเป็นราคา Gold Spot สากล (ตรงกับ FXCM/OANDA บน TradingView)
-    gold = yf.Ticker("XAUUSD=X")
-    df = gold.history(period="1d", interval="1m")
-    
-    # กรณีวันเสาร์-อาทิตย์ หรือช่วงตลาดปิด ถ้า 1m ไม่มีข้อมูล ให้สำรองด้วย 5m
-    if df.empty:
-        df = gold.history(period="5d", interval="5m")
-        
-    df = df.reset_index()
-    df = df.rename(columns={
-        "Open": "open",
-        "High": "high",
-        "Low": "low",
-        "Close": "close",
-        "Volume": "vol"
-    })
+    # ดึงแท่งเทียน 1 นาทีของ XAU/USDT Futures (ไม่ติด Rate Limit)
+    bars = exchange.fetch_ohlcv('XAU/USDT', timeframe='1m', limit=100)
+    df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
     return df
-exchange = ccxt.binance()
-symbol = "PAXG/USDT"  # ทองคำ XAUUSDT บน Binance
+
+exchange = ccxt.binance({
+    'options': {'defaultType': 'future'},
+    'enableRateLimit': True,
+    'timeout': 10000
+})
+symbol = "XAU/USDT"
 timeframe = "1m"
 last_signal = None
 
