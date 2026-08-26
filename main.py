@@ -142,3 +142,9 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/")
 def health_check():
     return {"status": "running", "bot": "XAUUSD Signal Scanner"}
+
+@app.get("/test-line")
+async def test_line():
+    await send_line_message("🔔 ทดสอบการแจ้งเตือนจากบอท XAUUSD บน Render!")
+    return {"status": "Test message triggered"}
+
