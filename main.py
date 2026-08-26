@@ -18,6 +18,11 @@ timeframe = "1m"
 last_signal = None
 
 async def send_line_message(text: str):
+
+    LINE_ACCESS_TOKEN = os.getenv("KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU=")
+    LINE_USER_ID = os.getenv("U4776c4283302343cebd85ab4cefbf2f9")
+
+    
     if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
         print("Missing LINE credentials in Environment Variables")
         return
