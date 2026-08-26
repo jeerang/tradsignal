@@ -218,6 +218,8 @@ async def reply_line_message(reply_token: str, text: str):
     except Exception as e:
         print(f"Error replying to LINE: {e}")
 
+app = FastAPI(lifespan=lifespan)
+
 @app.post("/webhook")
 async def line_webhook(request: Request):
     data = await request.json()
@@ -279,9 +281,6 @@ async def line_webhook(request: Request):
                 await reply_line_message(reply_token, help_msg)
 
     return {"status": "ok"}
-
-
-app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 def health_check():
