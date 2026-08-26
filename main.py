@@ -9,10 +9,24 @@ import numpy as np
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+TWELVE_DATA_API_KEY ="12d9362f07b746e885d8f5a87712a35d"
+
 def fetch_gold_data():
-    # ดึงแท่งเทียน 1 นาทีของ XAU/USDT Futures (ไม่ติด Rate Limit)
-    bars = exchange.fetch_ohlcv('XAU/USDT', timeframe='1m', limit=100)
-    df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
+    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1min&outputsize=100&apikey={TWELVE_DATA_API_KEY}"
+    with httpx.Client(timeout=10.0) as client:
+        res = client.get(url)
+        data = res.json()
+        
+    if "values" not in data:
+        raise Exception(f"Twelve Data Error: {data.get('message', 'No data')}")
+        
+    df = pd.DataFrame(data["values"])
+    # แปลงชนิดข้อมูลตัวเลข
+    for col in ['open', 'high', 'low', 'close']:
+        df[col] = df[col].astype(float)
+        
+    # Twelve Data เรียงจากใหม่ไปเก่า จึงต้องกลับลำดับให้อดีตอยู่บน ปัจจุบันอยู่ล่าง
+    df = df.iloc[::-1].reset_index(drop=True)
     return df
 
 exchange = ccxt.binance({
