@@ -9,35 +9,31 @@ import numpy as np
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-LINE_ACCESS_TOKEN = os.getenv("KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU=")
-LINE_USER_ID = os.getenv("U4776c4283302343cebd85ab4cefbf2f9")
-
 exchange = ccxt.binance()
-symbol = "PAXG/USDT"  # ทองคำ Gold Spot
+symbol = "PAXG/USDT"  # ทองคำ XAUUSDT บน Binance
 timeframe = "1m"
 last_signal = None
 
 async def send_line_message(text: str):
+    token = os.environ.get("KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU=", "").strip()
+    user_id = os.environ.get("U4776c4283302343cebd85ab4cefbf2f9", "").strip()
 
-    LINE_ACCESS_TOKEN = os.getenv("KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU=")
-    LINE_USER_ID = os.getenv("U4776c4283302343cebd85ab4cefbf2f9")
-
-    
-    if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
-        print("Missing LINE credentials in Environment Variables")
+    if not token or not user_id:
+        print(f"DEBUG: Missing Credentials -> Token Found: {bool(token)}, UserID Found: {bool(user_id)}")
         return
+
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
+        "Authorization": f"Bearer {token}"
     }
     body = {
-        "to": LINE_USER_ID,
+        "to": user_id,
         "messages": [{"type": "text", "text": text}]
     }
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.post("https://api.line.me/v2/bot/message/push", headers=headers, json=body)
-            print(f"LINE Notification Sent, status: {res.status_code}")
+            print(f"LINE Notification Sent, status: {res.status_code}, response: {res.text}")
     except Exception as e:
         print(f"Error sending LINE message: {e}")
 
@@ -121,13 +117,13 @@ async def check_signal():
         if prev_dir == -1 and curr_dir == 1 and rsi_val > 50:
             if last_signal != "BUY":
                 last_signal = "BUY"
-                msg = f"🟢 BUY Signal XAUUSD\nEntry: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
+                msg = f"🟢 BUY Signal XAUUSD\nPrice: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
                 await send_line_message(msg)
 
         elif prev_dir == 1 and curr_dir == -1 and rsi_val < 50:
             if last_signal != "SELL":
                 last_signal = "SELL"
-                msg = f"🔴 SELL Signal XAUUSD\nEntry: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
+                msg = f"🔴 SELL Signal XAUUSD\nPrice: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
                 await send_line_message(msg)
 
     except Exception as e:
@@ -152,4 +148,3 @@ def health_check():
 async def test_line():
     await send_line_message("🔔 ทดสอบการแจ้งเตือนจากบอท XAUUSD บน Render!")
     return {"status": "Test message triggered"}
-
