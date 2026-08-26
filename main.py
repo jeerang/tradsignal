@@ -109,6 +109,7 @@ def calculate_supertrend(df, period=7, multiplier=1.2):
                 direction[i] = -1
                 supertrend[i] = final_upper[i]
 
+    df['atr'] = atr
     df['supertrend'] = supertrend
     df['direction'] = direction
     return df
@@ -116,39 +117,67 @@ def calculate_supertrend(df, period=7, multiplier=1.2):
 async def check_signal():
     global last_signal
     try:
-        # เรียกข้อมูลจาก Yahoo Finance แทน ccxt
         df = fetch_gold_data()
-
         df['rsi'] = calculate_rsi(df['close'], period=14)
         df = calculate_supertrend(df, period=7, multiplier=1.2)
 
         closed_bar = df.iloc[-2]
         prev_bar = df.iloc[-3]
 
-        close_price = closed_bar['close']
-        rsi_val = closed_bar['rsi']
+        entry_price = float(closed_bar['close'])
+        rsi_val = float(closed_bar['rsi'])
+        atr_val = float(closed_bar['atr'])
         curr_dir = closed_bar['direction']
         prev_dir = prev_bar['direction']
 
-        print(f"[{time.strftime('%H:%M:%S')}] Checked XAUUSD: Price={close_price:.2f}, RSI={rsi_val:.1f}, Dir={curr_dir}")
+        print(f"[{time.strftime('%H:%M:%S')}] Checked XAUUSD: Price={entry_price:.2f}, RSI={rsi_val:.1f}, Dir={curr_dir}")
 
+        # สัญญาณ BUY
         if prev_dir == -1 and curr_dir == 1 and rsi_val > 50:
             if last_signal != "BUY":
                 last_signal = "BUY"
-                msg = f"🟢 BUY Signal XAUUSD\nPrice: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
+                sl = float(closed_bar['supertrend'])  # SL ตามเส้น Supertrend ขาขึ้น
+                tp1 = entry_price + (1.0 * atr_val)
+                tp2 = entry_price + (1.5 * atr_val)
+                tp3 = entry_price + (2.0 * atr_val)
+
+                msg = (
+                    f"🟢 BUY Signal XAUUSD (TF: 1m)\n"
+                    f"═════════════════\n"
+                    f"🎯 Entry: {entry_price:.2f}\n"
+                    f"🛑 SL: {sl:.2f}\n"
+                    f"🎯 TP1: {tp1:.2f}\n"
+                    f"🎯 TP2: {tp2:.2f}\n"
+                    f"🎯 TP3: {tp3:.2f}\n"
+                    f"═════════════════\n"
+                    f"📊 RSI: {rsi_val:.1f} | ATR: {atr_val:.2f}"
+                )
                 await send_line_message(msg)
 
+        # สัญญาณ SELL
         elif prev_dir == 1 and curr_dir == -1 and rsi_val < 50:
             if last_signal != "SELL":
                 last_signal = "SELL"
-                msg = f"🔴 SELL Signal XAUUSD\nPrice: {close_price:.2f}\nRSI: {rsi_val:.1f}\nTF: 1m"
+                sl = float(closed_bar['supertrend'])  # SL ตามเส้น Supertrend ขาลง
+                tp1 = entry_price - (1.0 * atr_val)
+                tp2 = entry_price - (1.5 * atr_val)
+                tp3 = entry_price - (2.0 * atr_val)
+
+                msg = (
+                    f"🔴 SELL Signal XAUUSD (TF: 1m)\n"
+                    f"═════════════════\n"
+                    f"🎯 Entry: {entry_price:.2f}\n"
+                    f"🛑 SL: {sl:.2f}\n"
+                    f"🎯 TP1: {tp1:.2f}\n"
+                    f"🎯 TP2: {tp2:.2f}\n"
+                    f"🎯 TP3: {tp3:.2f}\n"
+                    f"═════════════════\n"
+                    f"📊 RSI: {rsi_val:.1f} | ATR: {atr_val:.2f}"
+                )
                 await send_line_message(msg)
 
     except Exception as e:
         print(f"Check error: {e}")
-    except Exception as e:
-        print(f"Check error: {e}")
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler()
