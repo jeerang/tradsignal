@@ -3,11 +3,12 @@ import time
 import httpx
 import ccxt
 import pandas as pd
-import pandas_ta as ta
+import numpy as np
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 LINE_ACCESS_TOKEN = os.getenv("fbL8B+e8voao+f41Nx5DC9pT1GtsmwhlAQTN+rPFaNLQqPWCo7KyJmNNFMMAjIgc62xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLt2UFcm9LEi7KwgH5yZ4V6zjkudUdjEwCyxYQt6HELdBQdB04t89/1O/w1cDnyilFU=")
 LINE_USER_ID = os.getenv("U4776c4283302343cebd85ab4cefbf2f9")
+
 exchange = ccxt.binance()
 symbol = "PAXG/USDT"  # สกุลเงินทองคำบน Binance (1 PAXG = 1 troy oz Gold)
 timeframe = "1m"
