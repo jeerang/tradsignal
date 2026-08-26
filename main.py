@@ -9,7 +9,7 @@ import numpy as np
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-LINE_ACCESS_TOKEN = os.getenv("fbL8B+e8voao+f41Nx5DC9pT1GtsmwhlAQTN+rPFaNLQqPWCo7KyJmNNFMMAjIgc62xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLt2UFcm9LEi7KwgH5yZ4V6zjkudUdjEwCyxYQt6HELdBQdB04t89/1O/w1cDnyilFU=")
+LINE_ACCESS_TOKEN = os.getenv("KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU=")
 LINE_USER_ID = os.getenv("U4776c4283302343cebd85ab4cefbf2f9")
 
 exchange = ccxt.binance()
