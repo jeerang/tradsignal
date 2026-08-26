@@ -9,6 +9,15 @@ import numpy as np
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# ตั้งค่าโซนเวลาไทย
+BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
+
+def get_thai_time(format_str="%H:%M:%S"):
+    return datetime.now(BANGKOK_TZ).strftime(format_str)
+
 TWELVE_DATA_API_KEY ="12d9362f07b746e885d8f5a87712a35d"
 
 def fetch_gold_data():
@@ -118,6 +127,7 @@ def calculate_supertrend(df, period=7, multiplier=1.2):
 
 async def check_signal():
     global last_signal
+    current_time_th = get_thai_time('%H:%M:%S')
     try:
         df = fetch_gold_data()
         df['rsi'] = calculate_rsi(df['close'], period=14)
@@ -153,6 +163,7 @@ async def check_signal():
                     f"🎯 TP3: {tp3:.2f}\n"
                     f"═════════════════\n"
                     f"📊 RSI: {rsi_val:.1f} | ATR: {atr_val:.2f}"
+                    f"🕒 เวลาไทย: {current_time_th}"
                 )
                 await send_line_message(msg)
 
@@ -175,6 +186,7 @@ async def check_signal():
                     f"🎯 TP3: {tp3:.2f}\n"
                     f"═════════════════\n"
                     f"📊 RSI: {rsi_val:.1f} | ATR: {atr_val:.2f}"
+                    f"🕒 เวลาไทย: {current_time_th}"
                 )
                 await send_line_message(msg)
 
@@ -197,6 +209,7 @@ def health_check():
 
 @app.get("/test-line")
 async def test_line():
+    current_time_th = get_thai_time('%H:%M:%S')
     try:
         df = fetch_gold_data()
         latest_bar = df.iloc[-1]
@@ -206,7 +219,7 @@ async def test_line():
             f"🔔 [TEST] ระบบแจ้งเตือน XAUUSD\n"
             f"═════════════════\n"
             f"💰 ราคาทองคำปัจจุบัน: {current_price:.2f}\n"
-            f"🕒 เวลา: {time.strftime('%H:%M:%S')}\n"
+            f"🕒 เวลาไทย: {current_time_th}"
             f"═════════════════\n"
             f"✅ บอททำงานปกติบน Render"
         )
