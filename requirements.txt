@@ -6,3 +6,4 @@ numpy
 ccxt
 apscheduler
 python-dotenv
+yfinance
