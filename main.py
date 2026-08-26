@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
+from fastapi import Request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -200,6 +200,86 @@ async def lifespan(app: FastAPI):
     print("🚀 Background Signal Scanner Started!")
     yield
     scheduler.shutdown()
+
+async def reply_line_message(reply_token: str, text: str):
+    """ส่งข้อความตอบกลับด้วย replyToken (ไม่ต้องเสียโควต้า Push Message)"""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
+    }
+    body = {
+        "replyToken": reply_token,
+        "messages": [{"type": "text", "text": text}]
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post("https://api.line.me/v2/bot/message/reply", headers=headers, json=body)
+            print(f"Reply status: {res.status_code}")
+    except Exception as e:
+        print(f"Error replying to LINE: {e}")
+
+@app.post("/webhook")
+async def line_webhook(request: Request):
+    data = await request.json()
+    events = data.get("events", [])
+    
+    for event in events:
+        if event.get("type") == "message" and event["message"].get("type") == "text":
+            user_text = event["message"]["text"].strip().lower()
+            reply_token = event.get("replyToken")
+            
+            # คำสั่ง 1: สอบถามราคาทองคำปัจจุบัน
+            if user_text in ["ราคา", "price", "gold", "ทอง"]:
+                try:
+                    df = fetch_gold_data()
+                    current_price = float(df.iloc[-1]['close'])
+                    reply_msg = (
+                        f"💰 ราคาทองคำล่าสุด (XAU/USD)\n"
+                        f"═════════════════\n"
+                        f"💵 ราคา: {current_price:.2f}\n"
+                        f"🕒 เวลา: {get_thai_time()}\n"
+                        f"═════════════════"
+                    )
+                except Exception as e:
+                    reply_msg = f"❌ ไม่สามารถดึงราคาได้: {e}"
+                await reply_line_message(reply_token, reply_msg)
+                
+            # คำสั่ง 2: เช็คสถานะเทคนิคอล (RSI + Supertrend ล่าสุด)
+            elif user_text in ["สถานะ", "status", "เช็คสัญญาณ", "signal"]:
+                try:
+                    df = fetch_gold_data()
+                    df['rsi'] = calculate_rsi(df['close'], period=14)
+                    df = calculate_supertrend(df, period=7, multiplier=1.2)
+                    
+                    last_bar = df.iloc[-1]
+                    price = float(last_bar['close'])
+                    rsi = float(last_bar['rsi'])
+                    trend = "🟢 ขาขึ้น (BUY Zone)" if last_bar['direction'] == 1 else "🔴 ขาลง (SELL Zone)"
+                    
+                    reply_msg = (
+                        f"📊 สถานะเทคนิคอล XAUUSD (TF: 1m)\n"
+                        f"═════════════════\n"
+                        f"💵 ราคาปัจจุบัน: {price:.2f}\n"
+                        f"📈 เทรนด์: {trend}\n"
+                        f"📉 RSI (14): {rsi:.2f}\n"
+                        f"🕒 ตรวจสอบเมื่อ: {get_thai_time()}"
+                    )
+                except Exception as e:
+                    reply_msg = f"❌ เกิดข้อผิดพลาด: {e}"
+                await reply_line_message(reply_token, reply_msg)
+                
+            # กรณีพิมพ์คำสั่งอื่น แนะนำคำสั่งที่ใช้ได้
+            else:
+                help_msg = (
+                    f"🤖 เมนูคำสั่งบอท XAUUSD\n"
+                    f"═════════════════\n"
+                    f"พิมพ์ 'ราคา' : เช็คราคาทองคำสด\n"
+                    f"พิมพ์ 'สถานะ' : เช็คเทรนด์ & RSI ล่าสุด"
+                )
+                await reply_line_message(reply_token, help_msg)
+
+    return {"status": "ok"}
+
 
 app = FastAPI(lifespan=lifespan)
 
