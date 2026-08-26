@@ -5,3 +5,4 @@ pandas
 numpy
 ccxt
 apscheduler
+python-dotenv
