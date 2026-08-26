@@ -17,26 +17,22 @@ symbol = "PAXG/USDT"  # ทองคำ XAUUSDT บน Binance
 timeframe = "1m"
 last_signal = None
 
+LINE_ACCESS_TOKEN = "KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU="
+LINE_USER_ID = "U4776c4283302343cebd85ab4cefbf2f9"
+
 async def send_line_message(text: str):
-    token = os.environ.get("KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU=", "").strip()
-    user_id = os.environ.get("U4776c4283302343cebd85ab4cefbf2f9", "").strip()
-
-    if not token or not user_id:
-        print(f"DEBUG: Missing Credentials -> Token Found: {bool(token)}, UserID Found: {bool(user_id)}")
-        return
-
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}"
+        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
     }
     body = {
-        "to": user_id,
+        "to": LINE_USER_ID,
         "messages": [{"type": "text", "text": text}]
     }
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.post("https://api.line.me/v2/bot/message/push", headers=headers, json=body)
-            print(f"LINE Notification Sent, status: {res.status_code}, response: {res.text}")
+            print(f"LINE Response: {res.status_code}, Body: {res.text}")
     except Exception as e:
         print(f"Error sending LINE message: {e}")
 
