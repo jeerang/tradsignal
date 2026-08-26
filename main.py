@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # โหลดค่าจากไฟล์ .env ทันทีที่สตาร์ทแอป
+
 import os
 import time
 import asyncio
