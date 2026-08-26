@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-load_dotenv()  # โหลดค่าจากไฟล์ .env ทันทีที่สตาร์ทแอป
+load_dotenv()  
 
 import os
 import time
