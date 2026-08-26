@@ -195,5 +195,23 @@ def health_check():
 
 @app.get("/test-line")
 async def test_line():
-    await send_line_message("🔔 ทดสอบการแจ้งเตือนจากบอท XAUUSD บน Render!")
-    return {"status": "Test message triggered"}
+    try:
+        df = fetch_gold_data()
+        latest_bar = df.iloc[-1]
+        current_price = float(latest_bar['close'])
+        
+        test_msg = (
+            f"🔔 [TEST] ระบบแจ้งเตือน XAUUSD\n"
+            f"═════════════════\n"
+            f"💰 ราคาทองคำปัจจุบัน: {current_price:.2f}\n"
+            f"🕒 เวลา: {time.strftime('%H:%M:%S')}\n"
+            f"═════════════════\n"
+            f"✅ บอททำงานปกติบน Render"
+        )
+        await send_line_message(test_msg)
+        return {"status": "Success", "current_price": current_price}
+    except Exception as e:
+        error_msg = f"Error fetching test price: {e}"
+        print(error_msg)
+        await send_line_message(f"🔔 [TEST] บอททำงานปกติ (ไม่สามารถดึงราคาได้: {e})")
+        return {"status": "Error", "message": str(e)}
