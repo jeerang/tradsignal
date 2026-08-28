@@ -127,7 +127,6 @@ def calculate_supertrend(df, period=7, multiplier=1.2):
 
 async def check_signal():
     global last_signal
-    current_time_th = get_thai_time('%H:%M:%S')
     try:
         df = fetch_gold_data()
         df['rsi'] = calculate_rsi(df['close'], period=14)
@@ -142,56 +141,66 @@ async def check_signal():
         curr_dir = closed_bar['direction']
         prev_dir = prev_bar['direction']
 
-        print(f"[{time.strftime('%H:%M:%S')}] Checked XAUUSD: Price={entry_price:.2f}, RSI={rsi_val:.1f}, Dir={curr_dir}")
+        # Log ตรวจสอบค่าทุกนาที
+        print(f"[{get_thai_time()}] Scan: Price={entry_price:.2f} | RSI={rsi_val:.1f} | Dir={prev_dir}->{curr_dir} | LastSig={last_signal}")
 
-        # สัญญาณ BUY
-        if prev_dir == -1 and curr_dir == 1 and rsi_val > 50:
-            if last_signal != "BUY":
-                last_signal = "BUY"
-                sl = float(closed_bar['supertrend'])  # SL ตามเส้น Supertrend ขาขึ้น
-                tp1 = entry_price + (1.0 * atr_val)
-                tp2 = entry_price + (1.5 * atr_val)
-                tp3 = entry_price + (2.0 * atr_val)
+        # ตรวจสอบ BUY
+        if prev_dir == -1 and curr_dir == 1:
+            if rsi_val > 50:
+                if last_signal != "BUY":
+                    last_signal = "BUY"
+                    sl = float(closed_bar['supertrend'])
+                    tp1 = entry_price + (1.0 * atr_val)
+                    tp2 = entry_price + (1.5 * atr_val)
+                    tp3 = entry_price + (2.0 * atr_val)
 
-                msg = (
-                    f"🟢 BUY Signal XAUUSD (TF: 1m)\n"
-                    f"═════════════════\n"
-                    f"🎯 Entry: {entry_price:.2f}\n"
-                    f"🛑 SL: {sl:.2f}\n"
-                    f"🎯 TP1: {tp1:.2f}\n"
-                    f"🎯 TP2: {tp2:.2f}\n"
-                    f"🎯 TP3: {tp3:.2f}\n"
-                    f"═════════════════\n"
-                    f"📊 RSI: {rsi_val:.1f} | ATR: {atr_val:.2f}"
-                    f"🕒 เวลาไทย: {current_time_th}"
-                )
-                await send_line_message(msg)
+                    msg = (
+                        f"🟢 BUY Signal XAUUSD (TF: 1m)\n"
+                        f"═════════════════\n"
+                        f"🎯 Entry: {entry_price:.2f}\n"
+                        f"🛑 SL: {sl:.2f}\n"
+                        f"🎯 TP1: {tp1:.2f}\n"
+                        f"🎯 TP2: {tp2:.2f}\n"
+                        f"🎯 TP3: {tp3:.2f}\n"
+                        f"═════════════════\n"
+                        f"📊 RSI: {rsi_val:.1f} | ATR: {atr_val:.2f}\n"
+                        f"🕒 เวลาไทย: {get_thai_time()}"
+                    )
+                    await send_line_message(msg)
+                    print(f"[{get_thai_time()}] >>> BUY Signal Triggered & Sent!")
+            else:
+                print(f"[{get_thai_time()}] BUY condition met but filtered by RSI ({rsi_val:.1f} <= 50)")
 
-        # สัญญาณ SELL
-        elif prev_dir == 1 and curr_dir == -1 and rsi_val < 50:
-            if last_signal != "SELL":
-                last_signal = "SELL"
-                sl = float(closed_bar['supertrend'])  # SL ตามเส้น Supertrend ขาลง
-                tp1 = entry_price - (1.0 * atr_val)
-                tp2 = entry_price - (1.5 * atr_val)
-                tp3 = entry_price - (2.0 * atr_val)
+        # ตรวจสอบ SELL
+        elif prev_dir == 1 and curr_dir == -1:
+            if rsi_val < 50:
+                if last_signal != "SELL":
+                    last_signal = "SELL"
+                    sl = float(closed_bar['supertrend'])
+                    tp1 = entry_price - (1.0 * atr_val)
+                    tp2 = entry_price - (1.5 * atr_val)
+                    tp3 = entry_price - (2.0 * atr_val)
 
-                msg = (
-                    f"🔴 SELL Signal XAUUSD (TF: 1m)\n"
-                    f"═════════════════\n"
-                    f"🎯 Entry: {entry_price:.2f}\n"
-                    f"🛑 SL: {sl:.2f}\n"
-                    f"🎯 TP1: {tp1:.2f}\n"
-                    f"🎯 TP2: {tp2:.2f}\n"
-                    f"🎯 TP3: {tp3:.2f}\n"
-                    f"═════════════════\n"
-                    f"📊 RSI: {rsi_val:.1f} | ATR: {atr_val:.2f}"
-                    f"🕒 เวลาไทย: {current_time_th}"
-                )
-                await send_line_message(msg)
+                    msg = (
+                        f"🔴 SELL Signal XAUUSD (TF: 1m)\n"
+                        f"═════════════════\n"
+                        f"🎯 Entry: {entry_price:.2f}\n"
+                        f"🛑 SL: {sl:.2f}\n"
+                        f"🎯 TP1: {tp1:.2f}\n"
+                        f"🎯 TP2: {tp2:.2f}\n"
+                        f"🎯 TP3: {tp3:.2f}\n"
+                        f"═════════════════\n"
+                        f"📊 RSI: {rsi_val:.1f} | ATR: {atr_val:.2f}\n"
+                        f"🕒 เวลาไทย: {get_thai_time()}"
+                    )
+                    await send_line_message(msg)
+                    print(f"[{get_thai_time()}] >>> SELL Signal Triggered & Sent!")
+            else:
+                print(f"[{get_thai_time()}] SELL condition met but filtered by RSI ({rsi_val:.1f} >= 50)")
 
     except Exception as e:
-        print(f"Check error: {e}")
+        print(f"[{get_thai_time()}] Scan Error: {e}")
+        
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler()
