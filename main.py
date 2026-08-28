@@ -295,10 +295,6 @@ async def line_webhook(request: Request):
 def health_check():
     return {"status": "running", "bot": "XAUUSD Signal Scanner"}
 
-@app.get("/")
-def health_check():
-    return {"status": "running", "bot": "XAUUSD Signal Scanner"}
-
 @app.get("/test-line")
 async def test_line():
     current_time_th = get_thai_time('%H:%M:%S')
