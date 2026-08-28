@@ -382,7 +382,7 @@ async def line_webhook(request: Request):
             user_text = event["message"]["text"].strip().lower()
             reply_token = event.get("replyToken")
             
-            # คำสั่ง 1: สอบถามราคาทองคำปัจจุบัน
+            # 1. ปุ่มเช็คราคา
             if user_text in ["ราคา", "price", "gold", "ทอง"]:
                 try:
                     df = fetch_gold_data()
@@ -391,14 +391,14 @@ async def line_webhook(request: Request):
                         f"💰 ราคาทองคำล่าสุด (XAU/USD)\n"
                         f"═════════════════\n"
                         f"💵 ราคา: {current_price:.2f}\n"
-                        f"🕒 เวลา: {get_thai_time()}\n"
+                        f"🕒 เวลาไทย: {get_thai_time()}\n"
                         f"═════════════════"
                     )
                 except Exception as e:
                     reply_msg = f"❌ ไม่สามารถดึงราคาได้: {e}"
                 await reply_line_message(reply_token, reply_msg)
                 
-            # คำสั่ง 2: เช็คสถานะเทคนิคอล (RSI + Supertrend ล่าสุด)
+            # 2. ปุ่มเช็คสถานะ & RSI
             elif user_text in ["สถานะ", "status", "เช็คสัญญาณ", "signal"]:
                 try:
                     df = fetch_gold_data()
@@ -421,14 +421,68 @@ async def line_webhook(request: Request):
                 except Exception as e:
                     reply_msg = f"❌ เกิดข้อผิดพลาด: {e}"
                 await reply_line_message(reply_token, reply_msg)
-                
-            # กรณีพิมพ์คำสั่งอื่น แนะนำคำสั่งที่ใช้ได้
+
+            # 3. ปุ่มดูแนวรับ-แนวต้านประจำวัน
+            elif user_text in ["แนวรับแนวต้าน", "pivot", "แนวรับ", "แนวต้าน"]:
+                try:
+                    _, _, df_day = get_tf_trend('1d')
+                    if df_day is not None and len(df_day) >= 2:
+                        prev_day = df_day.iloc[-2]
+                        current_price = float(df_day.iloc[-1]['close'])
+                        pivots = calculate_pivot_points(prev_day)
+                        
+                        reply_msg = (
+                            f"🎯 กรอบแนวรับ-แนวต้าน วันนี้\n"
+                            f"═════════════════\n"
+                            f"💵 ราคาปัจจุบัน: {current_price:.2f}\n\n"
+                            f"🔴 ต้าน 3 (R3): {pivots['r3']:.2f}\n"
+                            f"🔴 ต้าน 2 (R2): {pivots['r2']:.2f}\n"
+                            f"🔴 ต้าน 1 (R1): {pivots['r1']:.2f}\n"
+                            f"⚖️ Pivot กลาง: {pivots['pivot']:.2f}\n"
+                            f"🟢 รับ 1 (S1): {pivots['s1']:.2f}\n"
+                            f"🟢 รับ 2 (S2): {pivots['s2']:.2f}\n"
+                            f"🟢 รับ 3 (S3): {pivots['s3']:.2f}\n"
+                            f"═════════════════"
+                        )
+                    else:
+                        reply_msg = "❌ ไม่สามารถคำนวณแนวรับแนวต้านได้"
+                except Exception as e:
+                    reply_msg = f"❌ เกิดข้อผิดพลาด: {e}"
+                await reply_line_message(reply_token, reply_msg)
+
+            # 4. ปุ่มดูบทวิเคราะห์ Multi-Timeframe
+            elif user_text in ["วิเคราะห์เช้า", "วิเคราะห์", "ภาพรวม"]:
+                try:
+                    trend_1h, rsi_1h, _ = get_tf_trend('1h')
+                    trend_4h, rsi_4h, _ = get_tf_trend('4h')
+                    trend_1d, rsi_1d, _ = get_tf_trend('1d')
+                    trend_1w, rsi_1w, _ = get_tf_trend('1w')
+                    trend_1m, rsi_1m, _ = get_tf_trend('1M')
+
+                    reply_msg = (
+                        f"📊 โครงสร้างแนวโน้ม Multi-Timeframe\n"
+                        f"═════════════════\n"
+                        f"• TF 1H  : {trend_1h} (RSI: {rsi_1h:.1f})\n"
+                        f"• TF 4H  : {trend_4h} (RSI: {rsi_4h:.1f})\n"
+                        f"• TF Day : {trend_1d} (RSI: {rsi_1d:.1f})\n"
+                        f"• TF Week: {trend_1w} (RSI: {rsi_1w:.1f})\n"
+                        f"• TF Month: {trend_1m} (RSI: {rsi_1m:.1f})\n"
+                        f"═════════════════\n"
+                        f"🕒 เวลาไทย: {get_thai_time()}"
+                    )
+                except Exception as e:
+                    reply_msg = f"❌ เกิดข้อผิดพลาด: {e}"
+                await reply_line_message(reply_token, reply_msg)
+
+            # อื่นๆ
             else:
                 help_msg = (
-                    f"🤖 เมนูคำสั่งบอท XAUUSD\n"
+                    f"🤖 เมนูกดสั่งการบอท XAUUSD\n"
                     f"═════════════════\n"
-                    f"พิมพ์ 'ราคา' : เช็คราคาทองคำสด\n"
-                    f"พิมพ์ 'สถานะ' : เช็คเทรนด์ & RSI ล่าสุด"
+                    f"• พิมพ์ 'ราคา' : เช็คราคาปัจจุบัน\n"
+                    f"• พิมพ์ 'สถานะ' : เช็คเทรนด์ & RSI\n"
+                    f"• พิมพ์ 'แนวรับแนวต้าน' : ดูจุด Pivot R1-R3 / S1-S3\n"
+                    f"• พิมพ์ 'วิเคราะห์' : ดูเทรนด์ 1H ถึง Month"
                 )
                 await reply_line_message(reply_token, help_msg)
 
