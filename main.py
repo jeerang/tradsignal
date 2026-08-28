@@ -290,6 +290,10 @@ async def line_webhook(request: Request):
                 await reply_line_message(reply_token, help_msg)
 
     return {"status": "ok"}
+    
+@app.api_route("/", methods=["GET", "HEAD"])
+def health_check():
+    return {"status": "running", "bot": "XAUUSD Signal Scanner"}
 
 @app.get("/")
 def health_check():
