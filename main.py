@@ -253,10 +253,16 @@ def calculate_pivot_points(prev_day_bar):
     }
 
 def get_tf_trend(symbol_tf, limit=100):
-    """ดึงข้อมูลและระบุทิศทางเทรนด์ตาม Timeframe ที่ระบุ"""
+    """ดึงข้อมูล Timeframe ต่างๆ จากแหล่งข้อมูลเดียวกัน"""
     try:
-        bars = exchange.fetch_ohlcv('XAU/USDT', timeframe=symbol_tf, limit=limit)
+        # ใช้ exchange เดียวกันกับระบบหลัก
+        bars = exchange.fetch_ohlcv(symbol, timeframe=symbol_tf, limit=limit)
         df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
+        
+        # แปลงชนิดข้อมูลตัวเลข
+        for col in ['open', 'high', 'low', 'close', 'vol']:
+            df[col] = df[col].astype(float)
+            
         df['rsi'] = calculate_rsi(df['close'], period=14)
         df = calculate_supertrend(df, period=7, multiplier=1.2)
         
@@ -264,7 +270,47 @@ def get_tf_trend(symbol_tf, limit=100):
         trend = "🟢 ขาขึ้น" if last['direction'] == 1 else "🔴 ขาลง"
         return trend, float(last['rsi']), df
     except Exception as e:
+        print(f"Error fetching TF {symbol_tf}: {e}")
         return "⚪ ไม่ระบุ", 50.0, None
+
+def get_daily_pivots():
+    """คำนวณ Pivot Points จากแท่ง Day เมื่อวาน และดึงราคาล่าสุดของวันนี้"""
+    try:
+        # ดึงแท่งเทียน 1 Day ล่าสุด 5 แท่ง
+        bars = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=5)
+        df_day = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
+        
+        for col in ['open', 'high', 'low', 'close']:
+            df_day[col] = df_day[col].astype(float)
+
+        # แท่งเมื่อวานที่ปิดแท่งแล้วสมบูรณ์ (iloc[-2])
+        prev_day = df_day.iloc[-2]
+        h = prev_day['high']
+        l = prev_day['low']
+        c = prev_day['close']
+
+        # ราคาปัจจุบัน ณ วินาทีนี้ (ดึงจากราคาปิดแท่งล่าสุดของวันนี้)
+        current_price = df_day.iloc[-1]['close']
+
+        # Classic Pivot Point Formula
+        pivot = (h + l + c) / 3
+        r1 = (2 * pivot) - l
+        s1 = (2 * pivot) - h
+        r2 = pivot + (h - l)
+        s2 = pivot - (h - l)
+        r3 = h + 2 * (pivot - l)
+        s3 = l - 2 * (h - pivot)
+
+        return {
+            "current_price": current_price,
+            "pivot": pivot,
+            "r1": r1, "r2": r2, "r3": r3,
+            "s1": s1, "s2": s2, "s3": s3,
+            "prev_high": h, "prev_low": l, "prev_close": c
+        }
+    except Exception as e:
+        print(f"Pivot calculation error: {e}")
+        return None
 
 def fetch_gold_news():
     """ดึงพาดหัวข่าวทองคำและเศรษฐกิจล่าสุดจาก RSS Feed"""
@@ -424,30 +470,26 @@ async def line_webhook(request: Request):
 
             # 3. ปุ่มดูแนวรับ-แนวต้านประจำวัน
             elif user_text in ["แนวรับแนวต้าน", "pivot", "แนวรับ", "แนวต้าน"]:
-                try:
-                    _, _, df_day = get_tf_trend('1d')
-                    if df_day is not None and len(df_day) >= 2:
-                        prev_day = df_day.iloc[-2]
-                        current_price = float(df_day.iloc[-1]['close'])
-                        pivots = calculate_pivot_points(prev_day)
-                        
-                        reply_msg = (
-                            f"🎯 กรอบแนวรับ-แนวต้าน วันนี้\n"
-                            f"═════════════════\n"
-                            f"💵 ราคาปัจจุบัน: {current_price:.2f}\n\n"
-                            f"🔴 ต้าน 3 (R3): {pivots['r3']:.2f}\n"
-                            f"🔴 ต้าน 2 (R2): {pivots['r2']:.2f}\n"
-                            f"🔴 ต้าน 1 (R1): {pivots['r1']:.2f}\n"
-                            f"⚖️ Pivot กลาง: {pivots['pivot']:.2f}\n"
-                            f"🟢 รับ 1 (S1): {pivots['s1']:.2f}\n"
-                            f"🟢 รับ 2 (S2): {pivots['s2']:.2f}\n"
-                            f"🟢 รับ 3 (S3): {pivots['s3']:.2f}\n"
-                            f"═════════════════"
-                        )
-                    else:
-                        reply_msg = "❌ ไม่สามารถคำนวณแนวรับแนวต้านได้"
-                except Exception as e:
-                    reply_msg = f"❌ เกิดข้อผิดพลาด: {e}"
+                pivots = get_daily_pivots()
+                if pivots:
+                    reply_msg = (
+                        f"🎯 กรอบแนวรับ-แนวต้าน วันนี้ (XAU/USD)\n"
+                        f"═════════════════\n"
+                        f"💵 ราคาปัจจุบัน: {pivots['current_price']:.2f}\n"
+                        f"📊 กรอบเมื่อวาน: High {pivots['prev_high']:.2f} | Low {pivots['prev_low']:.2f}\n"
+                        f"═════════════════\n"
+                        f"🔴 ต้าน 3 (R3): {pivots['r3']:.2f}\n"
+                        f"🔴 ต้าน 2 (R2): {pivots['r2']:.2f}\n"
+                        f"🔴 ต้าน 1 (R1): {pivots['r1']:.2f}\n"
+                        f"⚖️ Pivot กลาง: {pivots['pivot']:.2f}\n"
+                        f"🟢 รับ 1 (S1): {pivots['s1']:.2f}\n"
+                        f"🟢 รับ 2 (S2): {pivots['s2']:.2f}\n"
+                        f"🟢 รับ 3 (S3): {pivots['s3']:.2f}\n"
+                        f"═════════════════\n"
+                        f"🕒 เวลาไทย: {get_thai_time()}"
+                    )
+                else:
+                    reply_msg = "❌ ไม่สามารถดึงข้อมูลแนวรับ-แนวต้านได้ในขณะนี้"
                 await reply_line_message(reply_token, reply_msg)
 
             # 4. ปุ่มดูบทวิเคราะห์ Multi-Timeframe
