@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Request
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import xml.etree.ElementTree as ET
 
 # ตั้งค่าโซนเวลาไทย
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
@@ -200,13 +201,155 @@ async def check_signal():
 
     except Exception as e:
         print(f"[{get_thai_time()}] Scan Error: {e}")
+
+async def send_price_update_15m():
+    """ฟังก์ชันส่งสรุปราคาทองคำและเทรนด์เข้า LINE ทุกๆ 15 นาที"""
+    try:
+        df = fetch_gold_data()
+        df['rsi'] = calculate_rsi(df['close'], period=14)
+        df = calculate_supertrend(df, period=7, multiplier=1.2)
+
+        last_bar = df.iloc[-1]
+        price = float(last_bar['close'])
+        rsi_val = float(last_bar['rsi'])
+        direction = last_bar['direction']
         
+        trend_text = "🟢 ขาขึ้น (Bullish)" if direction == 1 else "🔴 ขาลง (Bearish)"
+        time_th = get_thai_time("%H:%M")
+
+        msg = (
+            f"⏰ สรุปราคาทองคำรอบ 15 นาที\n"
+            f"═════════════════\n"
+            f"💰 ราคาล่าสุด: {price:.2f}\n"
+            f"📈 แนวโน้ม: {trend_text}\n"
+            f"📊 RSI (14): {rsi_val:.1f}\n"
+            f"🕒 เวลาไทย: {time_th} น.\n"
+            f"═════════════════"
+        )
+        await send_line_message(msg)
+        print(f"[{get_thai_time()}] 15-Minute Price Update Sent Successfully!")
+    except Exception as e:
+        print(f"[{get_thai_time()}] Error in 15m update: {e}")
+
+def calculate_pivot_points(prev_day_bar):
+    """คำนวณ Classic Pivot Points (แนวรับ-แนวต้านประจำวัน)"""
+    h = float(prev_day_bar['high'])
+    l = float(prev_day_bar['low'])
+    c = float(prev_day_bar['close'])
+    
+    pivot = (h + l + c) / 3
+    r1 = (2 * pivot) - l
+    s1 = (2 * pivot) - h
+    r2 = pivot + (h - l)
+    s2 = pivot - (h - l)
+    r3 = h + 2 * (pivot - l)
+    s3 = l - 2 * (h - pivot)
+    
+    return {
+        "pivot": pivot,
+        "r1": r1, "r2": r2, "r3": r3,
+        "s1": s1, "s2": s2, "s3": s3,
+        "prev_high": h, "prev_low": l, "prev_close": c
+    }
+
+def get_tf_trend(symbol_tf, limit=100):
+    """ดึงข้อมูลและระบุทิศทางเทรนด์ตาม Timeframe ที่ระบุ"""
+    try:
+        bars = exchange.fetch_ohlcv('XAU/USDT', timeframe=symbol_tf, limit=limit)
+        df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
+        df['rsi'] = calculate_rsi(df['close'], period=14)
+        df = calculate_supertrend(df, period=7, multiplier=1.2)
+        
+        last = df.iloc[-1]
+        trend = "🟢 ขาขึ้น" if last['direction'] == 1 else "🔴 ขาลง"
+        return trend, float(last['rsi']), df
+    except Exception as e:
+        return "⚪ ไม่ระบุ", 50.0, None
+
+def fetch_gold_news():
+    """ดึงพาดหัวข่าวทองคำและเศรษฐกิจล่าสุดจาก RSS Feed"""
+    try:
+        url = "https://news.google.com/rss/search?q=gold+price+OR+forex+fed+economy&hl=en-US&gl=US&ceid=US:en"
+        with httpx.Client(timeout=10.0) as client:
+            res = client.get(url)
+            root = ET.fromstring(res.content)
+            items = root.findall('./channel/item')[:3]
+            news_list = [f"• {item.find('title').text.split(' - ')[0]}" for item in items]
+            return "\n".join(news_list)
+    except Exception:
+        return "• ตลาดจับตาตัวเลขเศรษฐกิจสหรัฐฯ และทิศทางดอกเบี้ย"
+
+async def send_morning_briefing():
+    """ส่งสรุปภาพรวม Multi-Timeframe + แนวรับแนวต้าน + ข่าว ทุก 06:00 น."""
+    try:
+        # 1. วิเคราะห์ Multi-Timeframe
+        trend_1h, rsi_1h, _ = get_tf_trend('1h')
+        trend_4h, rsi_4h, _ = get_tf_trend('4h')
+        trend_1d, rsi_1d, df_day = get_tf_trend('1d')
+        trend_1w, rsi_1w, _ = get_tf_trend('1w')
+        trend_1m, rsi_1m, _ = get_tf_trend('1M')
+
+        # 2. คำนวณแนวรับ-แนวต้านจากแท่งวันก่อนหน้า
+        if df_day is not None and len(df_day) >= 2:
+            prev_day = df_day.iloc[-2]
+            current_price = float(df_day.iloc[-1]['close'])
+            pivots = calculate_pivot_points(prev_day)
+        else:
+            return
+
+        # 3. ข่าวสารเศรษฐกิจ
+        news_summary = fetch_gold_news()
+        today_str = datetime.now(BANGKOK_TZ).strftime("%d/%m/%Y")
+
+        # 4. ประกอบข้อความ LINE
+        msg = (
+            f"🌅 สรุปบทวิเคราะห์ทองคำ (XAU/USD)\n"
+            f"📅 ประจำวันที่: {today_str} (06:00 น.)\n"
+            f"═════════════════\n"
+            f"💵 ราคาปัจจุบัน: {current_price:.2f}\n\n"
+            f"📊 โครงสร้างแนวโน้ม (Multi-TF):\n"
+            f"• TF 1H  : {trend_1h} (RSI: {rsi_1h:.1f})\n"
+            f"• TF 4H  : {trend_4h} (RSI: {rsi_4h:.1f})\n"
+            f"• TF Day : {trend_1d} (RSI: {rsi_1d:.1f})\n"
+            f"• TF Week: {trend_1w} (RSI: {rsi_1w:.1f})\n"
+            f"• TF Month: {trend_1m} (RSI: {rsi_1m:.1f})\n"
+            f"═════════════════\n"
+            f"🎯 กรอบราคา & แนวรับ-แนวต้านวันนี้:\n"
+            f"🔴 ต้าน 3 (R3): {pivots['r3']:.2f}\n"
+            f"🔴 ต้าน 2 (R2): {pivots['r2']:.2f}\n"
+            f"🔴 ต้าน 1 (R1): {pivots['r1']:.2f}\n"
+            f"⚖️ Pivot กลาง: {pivots['pivot']:.2f}\n"
+            f"🟢 รับ 1 (S1): {pivots['s1']:.2f}\n"
+            f"🟢 รับ 2 (S2): {pivots['s2']:.2f}\n"
+            f"🟢 รับ 3 (S3): {pivots['s3']:.2f}\n"
+            f"═════════════════\n"
+            f"📰 ข่าวเศรษฐกิจที่น่าสนใจ:\n"
+            f"{news_summary}\n"
+            f"═════════════════\n"
+            f"💡 คำแนะนำ: หากราคายืนเหนือ Pivot ({pivots['pivot']:.2f}) เน้นย่อ Buy ตามเทรนด์ใหญ่"
+        )
+
+        await send_line_message(msg)
+        print(f"[{get_thai_time()}] 06:00 AM Morning Briefing Sent Successfully!")
+
+    except Exception as e:
+        print(f"[{get_thai_time()}] Morning Briefing Error: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scheduler = AsyncIOScheduler()
+    scheduler = AsyncIOScheduler(timezone=BANGKOK_TZ)
+    
+    # 1. สแกนสัญญาณเทรดทุก 1 นาที
     scheduler.add_job(check_signal, 'cron', second='5')
+    
+    # 2. แจ้งราคาทุก 15 นาที
+    scheduler.add_job(send_price_update_15m, 'cron', minute='0,15,30,45', second='0')
+    
+    # 3. ส่งบทวิเคราะห์ประจำวันทุก 06:00 น. (เวลาไทย)
+    scheduler.add_job(send_morning_briefing, 'cron', hour=6, minute=0)
+    
     scheduler.start()
-    print("🚀 Background Signal Scanner Started!")
+    print("🚀 Schedulers Started: 1m Signal, 15m Price, 06:00 AM Briefing")
     yield
     scheduler.shutdown()
 
@@ -318,3 +461,8 @@ async def test_line():
         print(error_msg)
         await send_line_message(f"🔔 [TEST] บอททำงานปกติ (ไม่สามารถดึงราคาได้: {e})")
         return {"status": "Error", "message": str(e)}
+
+@app.get("/test-morning")
+async def test_morning():
+    await send_morning_briefing()
+    return {"status": "Morning briefing test triggered"}
