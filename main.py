@@ -127,7 +127,10 @@ def calculate_supertrend(df, period=7, multiplier=1.2):
     return df
 
 async def check_signal():
-    global last_signal
+    global last_signal, SCALPING_MODE
+    if not SCALPING_MODE:
+        return
+    
     try:
         df = fetch_gold_data()
         df['rsi'] = calculate_rsi(df['close'], period=14)
@@ -426,6 +429,30 @@ async def reply_line_message(reply_token: str, text: str):
     except Exception as e:
         print(f"Error replying to LINE: {e}")
 
+SCALPING_MODE = True
+
+def get_1h_range():
+    """คำนวณราคาสูงสุด-ต่ำสุดในกรอบ 1 ชั่วโมงล่าสุด (60 แท่งใน TF 1m)"""
+    try:
+        df = fetch_gold_data()
+        # ใช้ข้อมูล 60 แท่งล่าสุด = 1 ชั่วโมง
+        df_1h = df.tail(60)
+        
+        high_1h = float(df_1h['high'].max())
+        low_1h = float(df_1h['low'].min())
+        current_price = float(df.iloc[-1]['close'])
+        spread_range = high_1h - low_1h
+        
+        return {
+            "current": current_price,
+            "high": high_1h,
+            "low": low_1h,
+            "range": spread_range
+        }
+    except Exception as e:
+        print(f"Error calculating 1H range: {e}")
+        return None
+
 app = FastAPI(lifespan=lifespan)
 
 @app.post("/webhook")
@@ -525,7 +552,45 @@ async def line_webhook(request: Request):
                 except Exception as e:
                     reply_msg = f"❌ เกิดข้อผิดพลาด: {e}"
                 await reply_line_message(reply_token, reply_msg)
+            # 5.ปุ่มดูราคาสูงสุด-ต่ำสุดใน 1 ชั่วโมง
+            elif user_text in ["กรอบ 1 ชม", "1h range", "กรอบ 1 ชั่วโมง", "กรอบราคา"]:
+                data_1h = get_1h_range()
+                if data_1h:
+                    reply_msg = (
+                        f"⏱️ สรุปกรอบราคาใน 1 ชั่วโมงล่าสุด\n"
+                        f"═════════════════\n"
+                        f"💵 ราคาปัจจุบัน: {data_1h['current']:.2f}\n"
+                        f"🔺 สูงสุด (High 1H): {data_1h['high']:.2f}\n"
+                        f"🔻 ต่ำสุด (Low 1H): {data_1h['low']:.2f}\n"
+                        f"📏 ความกว้างกรอบ: {data_1h['range']:.2f} จุด\n"
+                        f"═════════════════\n"
+                        f"🕒 เวลาไทย: {get_thai_time()}"
+                    )
+                else:
+                    reply_msg = "❌ ไม่สามารถดึงข้อมูลกรอบราคา 1 ชั่วโมงได้"
+                await reply_line_message(reply_token, reply_msg)
 
+            # 6.ปุ่มเปิด/ปิดโหมดสายซิ่ง
+            elif user_text in ["โหมดสายซิ่ง", "เปิดโหมดสายซิ่ง", "ปิดโหมดสายซิ่ง", "สลับโหมด"]:
+                global SCALPING_MODE
+                if "เปิด" in user_text:
+                    SCALPING_MODE = True
+                elif "ปิด" in user_text:
+                    SCALPING_MODE = False
+                else:
+                    # สลับสถานะ (Toggle)
+                    SCALPING_MODE = not SCALPING_MODE
+                
+                status_text = "🟢 เปิดใช้งาน (Active)" if SCALPING_MODE else "🔴 ปิดการแจ้งเตือน (Paused)"
+                reply_msg = (
+                    f"⚙️ การตั้งค่าโหมดสายซิ่ง (TF 1m)\n"
+                    f"═════════════════\n"
+                    f"สถานะปัจจุบัน: {status_text}\n"
+                    f"═════════════════\n"
+                    f"💡 พิมพ์ 'เปิดโหมดสายซิ่ง' หรือ 'ปิดโหมดสายซิ่ง' เพื่อควบคุม"
+                )
+                await reply_line_message(reply_token, reply_msg)
+           
             # อื่นๆ
             else:
                 help_msg = (
