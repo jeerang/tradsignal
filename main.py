@@ -276,21 +276,31 @@ def get_tf_trend(symbol_tf, limit=100):
 def get_daily_pivots():
     """คำนวณ Pivot Points จากแท่ง Day เมื่อวาน และดึงราคาล่าสุดของวันนี้"""
     try:
-        # ดึงแท่งเทียน 1 Day ล่าสุด 5 แท่ง
-        bars = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=5)
-        df_day = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
+        # 1. ดึงราคาปัจจุบันล่าสุดจากฟังก์ชันหลัก
+        df_now = fetch_gold_data()
+        current_price = float(df_now.iloc[-1]['close'])
         
+        # 2. ดึงข้อมูลแท่ง Day (หากใช้ Twelve Data หรือ Exchange)
+        # ตัวอย่างสำหรับ Twelve Data:
+        url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1day&outputsize=5&apikey={TWELVE_DATA_API_KEY}"
+        with httpx.Client(timeout=10.0) as client:
+            res = client.get(url)
+            data = res.json()
+            
+        if "values" not in data or len(data["values"]) < 2:
+            return None
+            
+        df_day = pd.DataFrame(data["values"])
         for col in ['open', 'high', 'low', 'close']:
             df_day[col] = df_day[col].astype(float)
-
-        # แท่งเมื่อวานที่ปิดแท่งแล้วสมบูรณ์ (iloc[-2])
-        prev_day = df_day.iloc[-2]
-        h = prev_day['high']
-        l = prev_day['low']
-        c = prev_day['close']
-
-        # ราคาปัจจุบัน ณ วินาทีนี้ (ดึงจากราคาปิดแท่งล่าสุดของวันนี้)
-        current_price = df_day.iloc[-1]['close']
+            
+        # สำคัญ: Twelve Data เรียงจาก ใหม่ (0) -> เก่า (1, 2, ...)
+        # values[0] คือแท่งของวันนี้ที่กำลังวิ่งอยู่
+        # values[1] คือแท่งของเมื่อวานที่ปิดสมบูรณ์แล้ว
+        prev_day = df_day.iloc[1] 
+        h = float(prev_day['high'])
+        l = float(prev_day['low'])
+        c = float(prev_day['close'])
 
         # Classic Pivot Point Formula
         pivot = (h + l + c) / 3
@@ -309,7 +319,7 @@ def get_daily_pivots():
             "prev_high": h, "prev_low": l, "prev_close": c
         }
     except Exception as e:
-        print(f"Pivot calculation error: {e}")
+        print(f"Error calculating pivots: {e}")
         return None
 
 def fetch_gold_news():
@@ -469,7 +479,7 @@ async def line_webhook(request: Request):
                 await reply_line_message(reply_token, reply_msg)
 
             # 3. ปุ่มดูแนวรับ-แนวต้านประจำวัน
-            elif user_text in ["แนวรับแนวต้าน", "pivot", "แนวรับ", "แนวต้าน"]:
+           elif user_text in ["แนวรับแนวต้าน", "pivot", "แนวรับ", "แนวต้าน"]:
                 pivots = get_daily_pivots()
                 if pivots:
                     reply_msg = (
