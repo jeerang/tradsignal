@@ -479,7 +479,7 @@ async def line_webhook(request: Request):
                 await reply_line_message(reply_token, reply_msg)
 
             # 3. ปุ่มดูแนวรับ-แนวต้านประจำวัน
-           elif user_text in ["แนวรับแนวต้าน", "pivot", "แนวรับ", "แนวต้าน"]:
+            elif user_text in ["แนวรับแนวต้าน", "pivot", "แนวรับ", "แนวต้าน"]:
                 pivots = get_daily_pivots()
                 if pivots:
                     reply_msg = (
