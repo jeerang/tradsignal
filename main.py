@@ -269,7 +269,7 @@ def get_1h_range():
 async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler(timezone=BANGKOK_TZ)
     scheduler.add_job(check_signal, 'cron', second='5')
-    scheduler.add_job(send_price_update_15m, 'cron', minute='0,15,30,45', second='0')
+    # scheduler.add_job(send_price_update_15m, 'cron', minute='0,15,30,45', second='0')
     scheduler.start()
     print("🚀 GTPro Bot Schedulers Started!")
     yield
