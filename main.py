@@ -13,7 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # 1. CONFIGURATION & CONSTANTS
 # ==========================================
 LINE_CHANNEL_ACCESS_TOKEN = "KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU="
-TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "")
+TWELVE_DATA_API_KEY = "12d9362f07b746e885d8f5a87712a35d"
 LINE_USER_ID = "U4776c4283302343cebd85ab4cefbf2f9"
 
 BANGKOK_TZ = pytz.timezone("Asia/Bangkok")
