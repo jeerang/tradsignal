@@ -73,6 +73,26 @@ def fetch_gold_data(interval: str = "1min", outputsize: int = 100) -> pd.DataFra
     df = df.iloc[::-1].reset_index(drop=True)  # เรียงจากเก่าไปใหม่
     return df
 
+def fetch_live_price():
+    """ดึงราคา Real-time ล่าสุดตรงจาก API"""
+    try:
+        # 1. ลองดึงแบบ Real-time Price endpoint
+        url = f"https://api.twelvedata.com/price?symbol=XAU/USD&apikey={TWELVE_DATA_API_KEY}"
+        with httpx.Client(timeout=8.0) as client:
+            res = client.get(url)
+            data = res.json()
+            if "price" in data:
+                return float(data["price"])
+    except Exception as e:
+        print(f"Fetch live price error: {e}")
+    
+    # สำรอง: หากไม่ได้ ให้ดึงแท่งล่าสุด (iloc[-1])
+    try:
+        df = fetch_gold_data(interval="1min", outputsize=5)
+        return float(df.iloc[-1]['close'])
+    except Exception:
+        return None
+
 # ==========================================
 # 3. LINE MESSAGING FUNCTIONS
 # ==========================================
@@ -290,7 +310,7 @@ async def line_webhook(request: Request):
 
             if user_text in ["ราคา", "price", "gold", "ทอง"]:
                 df = fetch_gold_data(interval="1min", outputsize=10)
-                current_price = float(df.iloc[-1]['close'])
+                current_price = current_price = fetch_live_price()
                 reply_msg = f"💰 ราคาทองคำล่าสุด (XAU/USD): {current_price:.2f}\n🕒 {get_thai_time()}"
                 await reply_line_message(reply_token, reply_msg)
 
