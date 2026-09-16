@@ -510,7 +510,7 @@ async def line_webhook(request: Request):
                     reply_msg = "❌ ไม่สามารถดึงราคาล่าสุดได้ในขณะนี้"
                 await reply_line_message(reply_token, reply_msg)
 
-            elif user_text in ["สถานะ", "status"]:
+            elif user_text in ["สถานะ", "status", "ตรวจสอบ", "ตรวจสถานะ", "เช็ค", "check"]:
                 _, tf_label = get_current_session_tf()
                 interval, _ = get_current_session_tf()
                 df = fetch_gold_data(interval=interval, outputsize=60)
@@ -570,6 +570,13 @@ async def line_webhook(request: Request):
                     SCALPING_MODE = not SCALPING_MODE
                 status_text = "🟢 เปิดใช้งาน (Active)" if SCALPING_MODE else "🔴 ปิดใช้งาน (Paused)"
                 await reply_line_message(reply_token, f"⚙️ การแจ้งเตือนระบบ Light: {status_text}")
+
+            else:
+                await reply_line_message(
+                    reply_token,
+                    "ไม่พบคำสั่งนี้ครับ\n"
+                    "คำสั่งที่ใช้ได้: ราคา, ตรวจสอบ, แนวรับแนวต้าน, กรอบ 1 ชม, โหมดสายซิ่ง"
+                )
 
     return {"status": "ok"}
 
