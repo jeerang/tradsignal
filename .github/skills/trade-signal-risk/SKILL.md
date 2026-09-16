@@ -40,8 +40,6 @@ user-invocable: true
 
 ## Stop Loss Rules
 
-กำหนด SL ก่อน entry ทุกครั้ง:
-
 - BUY: วาง SL ใต้ support zone หรือใต้ swing low ที่เป็นเหตุผลของการเข้า
 - SELL: วาง SL เหนือ resistance zone หรือเหนือ swing high ที่เป็นเหตุผลของการเข้า
 - เผื่อ buffer นอกโซนตาม spread และ volatility เพื่อหลีกเลี่ยงการโดน sweep ระยะสั้น
@@ -123,3 +121,54 @@ position_size = risk_amount / (stop_distance * value_per_price_unit)
 - Uhas, วิธีการตั้ง SL และ TP ก่อนเทรด Forex: https://uhas.com/setting-sl-and-tp-forex/
 
 หมายเหตุ: ณ วันที่ศึกษา หน้า Exness redirect ไปหน้า login จึงใช้เป็นแหล่งอ้างอิงหัวข้อเท่านั้น และไม่บันทึกรายละเอียดที่ไม่สามารถตรวจเนื้อหาหน้าเดิมได้
+
+## Current Project Development State
+
+ข้อมูลส่วนนี้เป็นสถานะอ้างอิงสำหรับการพัฒนาต่อของ `tradsignal` และห้ามเก็บค่า secret จริงไว้ใน skill
+
+### Runtime and Deployment
+
+- แอปหลักอยู่ใน `main.py` เป็น FastAPI และ deploy บน Render ที่ `https://tradsignal.onrender.com`
+- health check: `GET /healthz`
+- LINE webhook: `POST /webhook`
+- `GET /webhook` ใช้ตรวจข้อมูล endpoint ใน browser ได้ แต่ไม่ใช่การทดสอบ event จริง
+- ใช้ `python-dotenv` โหลด config จาก environment; Render ต้องตั้ง `TWELVE_DATA_API_KEY`, `LINE_ACCESS_TOKEN` หรือ `LINE_CHANNEL_ACCESS_TOKEN`, และ `RENDER_EXTERNAL_URL`
+- ห้ามใส่ API key หรือ LINE token ลง Git, skill, log หรือข้อความตอบผู้ใช้
+
+### LINE Commands
+
+- `ping`, `ทดสอบ`, `ทดสอบระบบ`: ตรวจเส้นทาง webhook และตอบ `pong`
+- `ราคา`: ดึงราคาปัจจุบันจาก Twelve Data
+- `วิเคราะห์`, `วิเคราะห์ราคา`, `วิเคราะห์เทรนด์`, `analyze`: วิเคราะห์ trend และแสดง Entry, BUY/SELL/HOLD, SL, TP1, TP2, TP3, RSI, ATR และโซน support/resistance
+- `ตรวจสอบ`, `สถานะ`, `ตรวจสถานะ`, `เช็ค`, `check`: แสดงสถานะระบบและข้อมูลตลาด
+- `เปิด scalping`, `เปิดโหมด scalping`, `scalping on`: เปิดโหมด 1m และให้ scheduler ตรวจทุกนาที
+- `ปิด scalping`, `ปิดโหมด scalping`, `scalping off`: ปิดโหมด 1m และกลับไป timeframe ปกติ 5m/15m
+- เมื่อ Twelve Data ใช้งานไม่ได้ command ตลาดต้องตอบ fallback ที่อธิบายปัญหา ไม่ปล่อยให้ LINE เงียบ
+
+### Signal Implementation
+
+- `get_current_session_tf()` คืน `1min/1m` เมื่อ `SCALPING_MODE=True`; เมื่อปิดใช้ `5min/5m` ก่อนเที่ยงไทย และ `15min/15m` หลังเที่ยง
+- `analyze_market()` ใช้แท่งปิดล่าสุด, HMA(20), RSI(14), ATR(14) และเรียก `calculate_trade_levels()` ผ่าน risk gate
+- `calculate_trade_levels()` ใช้ support/resistance ล่าสุดกับ ATR buffer, คำนวณ risk จริง และสร้าง TP ที่ 2R, 3.5R, 5R
+- ถ้าข้อมูลไม่พอ, indicator เป็น NaN หรือพื้นที่ถึงโซนเป้าหมายไม่ผ่าน R:R 1:2 ให้ตอบ `HOLD`
+- scheduler เรียก `check_signal()` ทุกนาที; ฟังก์ชันจะกรองเหลือรอบ 15 นาทีเมื่อปิด scalping
+- ระบบหยุดสแกนหลัง 19:00 ตามเวลาไทย เป็นกติกาความปลอดภัยเดิม ต้องทบทวนก่อนเปลี่ยน
+
+### Known Follow-up Work
+
+1. เพิ่ม unit tests ถาวรสำหรับ `analyze_market()`, BUY/SELL level calculation และ command parser
+2. เพิ่มการตรวจ webhook signature ของ LINE ก่อนประมวลผล event
+3. เพิ่มข่าวเศรษฐกิจ, spread และ slippage filter ก่อนส่งสัญญาณจริง
+4. เพิ่ม position sizing จาก account equity เมื่อมี contract specification ที่เชื่อถือได้
+5. แยกสถานะ scalping และ trade state ออกจาก global memory หาก Render ใช้หลาย instance หรือ restart บ่อย
+6. ตรวจ Render Logs เมื่อ LINE เงียบ: `LINE Command Received`, `LINE Reply Sent`, `LINE Reply Error`, `Analysis Command Error`
+
+### Validation Commands
+
+```powershell
+\.\.venv\Scripts\python.exe -m py_compile main.py
+Invoke-WebRequest -Uri "https://tradsignal.onrender.com/healthz"
+Invoke-WebRequest -Uri "https://tradsignal.onrender.com/webhook" -Method POST -ContentType "application/json" -Body '{"events":[]}'
+```
+
+การทดสอบ `ping` หรือ `analyze` ผ่าน LINE ต้องทดสอบ event จริงหลัง Render deploy commit ล่าสุด และต้องไม่ส่ง token ผ่าน command line หรือแชต
