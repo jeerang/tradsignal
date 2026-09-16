@@ -3,7 +3,7 @@ import sys
 import httpx
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -28,6 +28,7 @@ LINE_CHANNEL_ACCESS_TOKEN = os.getenv(
 TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "")
 LINE_USER_ID = os.getenv("LINE_USER_ID", "")
 APP_URL = os.getenv("RENDER_EXTERNAL_URL", "https://tradsignal.onrender.com")
+HEARTBEAT_INTERVAL_MINUTES = max(1, int(os.getenv("HEARTBEAT_INTERVAL_MINUTES", "5")))
 
 BANGKOK_TZ = pytz.timezone("Asia/Bangkok")
 SCALPING_MODE = True
@@ -207,10 +208,11 @@ async def reply_line_message(reply_token: str, text: str):
 
 async def keep_alive():
     """ยิง Ping เข้าหาตัวเองทุก 10 นาทีเพื่อป้องกัน Render Sleep Mode"""
+    health_url = f"{APP_URL.rstrip('/')}/healthz"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.get(APP_URL)
-            print(f"[{get_thai_time()}] Keep-Alive Ping Status: {res.status_code}")
+            res = await client.get(health_url)
+            print(f"[{get_thai_time()}] Keep-Alive Ping Status: {res.status_code} ({health_url})")
     except Exception as e:
         print(f"[{get_thai_time()}] Keep-Alive Ping Failed: {e}")
 
@@ -459,11 +461,29 @@ def get_1h_range():
 async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler(timezone=BANGKOK_TZ)
     # ตรวจสอบสัญญาณทุก 15 นาที (0, 15, 30, 45) ที่วินาทีที่ 15
-    scheduler.add_job(check_signal, 'cron', minute='0,15,30,45', second='15')
-    # ยิง Ping ป้องกัน Sleep ทุก 10 นาที
-    scheduler.add_job(keep_alive, 'interval', minutes=10)
+    scheduler.add_job(
+        check_signal,
+        'cron',
+        minute='0,15,30,45',
+        second='15',
+        id='signal-scanner',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
+    )
+    # ยิง health ping ถี่กว่าช่วง idle ของ Render เพื่อรักษา service ให้อุ่นอยู่
+    scheduler.add_job(
+        keep_alive,
+        'interval',
+        minutes=HEARTBEAT_INTERVAL_MINUTES,
+        start_date=datetime.now(BANGKOK_TZ) + timedelta(seconds=30),
+        id='render-heartbeat',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
+    )
     scheduler.start()
-    print("🚀 Light Bot Schedulers Started!")
+    print(f"🚀 Light Bot Schedulers Started! Heartbeat: {HEARTBEAT_INTERVAL_MINUTES}m")
     yield
     scheduler.shutdown()
 
@@ -557,6 +577,10 @@ async def line_webhook(request: Request):
 def home():
     _, tf_label = get_current_session_tf()
     return {"status": "Light XAUUSD Bot Running", "active_tf": tf_label, "time": get_thai_time()}
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok", "service": "tradsignal", "time": get_thai_time()}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
