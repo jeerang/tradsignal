@@ -9,6 +9,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Ensure UTF-8 output encoding for Windows command line terminals
 if sys.platform == "win32":
@@ -20,10 +23,10 @@ if sys.platform == "win32":
 # ==========================================
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv(
     "LINE_CHANNEL_ACCESS_TOKEN",
-    "KvNZvrpSbwGYFBu76Y8ximlw/LnKmoDTisOFzkyCoFo8T/REVrytbOCjJdo+tYu662xMfG4YQs/fzLjjTZTGF31q5+OshzTzI34aOw5KzLsuXYdExswTFruj/lzfLQudFbK3Dh66t9YpP4hT7HHVXAdB04t89/1O/w1cDnyilFU="
+    ""
 )
-TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "12d9362f07b746e885d8f5a87712a35d")
-LINE_USER_ID = os.getenv("LINE_USER_ID", "U4776c4283302343cebd85ab4cefbf2f9")
+TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "")
+LINE_USER_ID = os.getenv("LINE_USER_ID", "")
 APP_URL = os.getenv("RENDER_EXTERNAL_URL", "https://tradsignal.onrender.com")
 
 BANGKOK_TZ = pytz.timezone("Asia/Bangkok")
@@ -85,6 +88,57 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     low_cp = (df['low'] - df['close'].shift()).abs()
     tr = pd.concat([high_low, high_cp, low_cp], axis=1).max(axis=1)
     return tr.rolling(window=period).mean()
+
+def calculate_trade_levels(df: pd.DataFrame, direction: int, entry_price: float, atr: float) -> dict | None:
+    """Build structure-aware SL/TP levels from recent support and resistance zones."""
+    if not np.isfinite(entry_price) or not np.isfinite(atr) or atr <= 0:
+        return None
+
+    history = df.iloc[:-2].tail(30)
+    if len(history) < 10:
+        return None
+
+    lows = history['low'].dropna().astype(float)
+    highs = history['high'].dropna().astype(float)
+    support_candidates = lows[lows < entry_price]
+    resistance_candidates = highs[highs > entry_price]
+    if support_candidates.empty or resistance_candidates.empty:
+        return None
+
+    support = float(support_candidates.max())
+    resistance = float(resistance_candidates.min())
+    buffer = atr * 0.25
+
+    if direction == 1:
+        stop_loss = min(support - buffer, entry_price - atr)
+        risk = entry_price - stop_loss
+        first_target_room = resistance - entry_price
+        if risk <= 0 or first_target_room < risk * 2:
+            return None
+        return {
+            "sl": stop_loss,
+            "tp1": entry_price + risk * 2.0,
+            "tp2": entry_price + risk * 3.5,
+            "tp3": entry_price + risk * 5.0,
+            "risk": risk,
+            "support": support,
+            "resistance": resistance,
+        }
+
+    stop_loss = max(resistance + buffer, entry_price + atr)
+    risk = stop_loss - entry_price
+    first_target_room = entry_price - support
+    if risk <= 0 or first_target_room < risk * 2:
+        return None
+    return {
+        "sl": stop_loss,
+        "tp1": entry_price - risk * 2.0,
+        "tp2": entry_price - risk * 3.5,
+        "tp3": entry_price - risk * 5.0,
+        "risk": risk,
+        "support": support,
+        "resistance": resistance,
+    }
 
 def fetch_gold_data(interval: str = "5min", outputsize: int = 100) -> pd.DataFrame:
     url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval={interval}&outputsize={outputsize}&apikey={TWELVE_DATA_API_KEY}"
@@ -272,12 +326,21 @@ async def check_signal():
 
         # --- สัญญาณไม้ที่ 2 (ยืนยันเข้าออเดอร์ + คำนวณ High R:R) ---
         elif raw_buy and buy_streak >= 2 and active_dir != 1:
+            levels = calculate_trade_levels(df, 1, c_close, atr_val)
+            if levels is None:
+                await send_line_message(
+                    f"⏸️ [HOLD | TF: {tf_label}] BUY ไม่ผ่าน risk gate\n"
+                    f"ไม่มีพื้นที่ถึงแนวต้านถัดไปสำหรับ R:R 1:2\n"
+                    f"🕒 {get_thai_time()}"
+                )
+                return
+
             entry_price = c_close
             entry_atr = atr_val
-            sl_level = entry_price - (1.0 * atr_val)
-            tp1_level = entry_price + (2.0 * atr_val)
-            tp2_level = entry_price + (3.5 * atr_val)
-            tp3_level = entry_price + (5.0 * atr_val)
+            sl_level = levels["sl"]
+            tp1_level = levels["tp1"]
+            tp2_level = levels["tp2"]
+            tp3_level = levels["tp3"]
             active_dir = 1
 
             msg = (
@@ -289,18 +352,29 @@ async def check_signal():
                 f"🎯 เป้าหมาย TP2 (1:3.5): {tp2_level:.2f}\n"
                 f"🎯 เป้าหมาย TP3 (1:5.0): {tp3_level:.2f}\n"
                 f"═════════════════\n"
+                f"🟢 Support: {levels['support']:.2f} | 🔴 Resistance: {levels['resistance']:.2f}\n"
+                f"📐 Risk:Reward = 1:2.0 ขั้นต่ำ\n"
                 f"📈 Baseline HMA: {c_hma:.2f} | RSI: {rsi_val:.1f}\n"
                 f"🕒 {get_thai_time()}"
             )
             await send_line_message(msg)
 
         elif raw_sell and sell_streak >= 2 and active_dir != -1:
+            levels = calculate_trade_levels(df, -1, c_close, atr_val)
+            if levels is None:
+                await send_line_message(
+                    f"⏸️ [HOLD | TF: {tf_label}] SELL ไม่ผ่าน risk gate\n"
+                    f"ไม่มีพื้นที่ถึงแนวรับถัดไปสำหรับ R:R 1:2\n"
+                    f"🕒 {get_thai_time()}"
+                )
+                return
+
             entry_price = c_close
             entry_atr = atr_val
-            sl_level = entry_price + (1.0 * atr_val)
-            tp1_level = entry_price - (2.0 * atr_val)
-            tp2_level = entry_price - (3.5 * atr_val)
-            tp3_level = entry_price - (5.0 * atr_val)
+            sl_level = levels["sl"]
+            tp1_level = levels["tp1"]
+            tp2_level = levels["tp2"]
+            tp3_level = levels["tp3"]
             active_dir = -1
 
             msg = (
@@ -312,6 +386,8 @@ async def check_signal():
                 f"🎯 เป้าหมาย TP2 (1:3.5): {tp2_level:.2f}\n"
                 f"🎯 เป้าหมาย TP3 (1:5.0): {tp3_level:.2f}\n"
                 f"═════════════════\n"
+                f"🟢 Support: {levels['support']:.2f} | 🔴 Resistance: {levels['resistance']:.2f}\n"
+                f"📐 Risk:Reward = 1:2.0 ขั้นต่ำ\n"
                 f"📈 Baseline HMA: {c_hma:.2f} | RSI: {rsi_val:.1f}\n"
                 f"🕒 {get_thai_time()}"
             )
