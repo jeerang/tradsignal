@@ -154,6 +154,19 @@ position_size = risk_amount / (stop_distance * value_per_price_unit)
 - scheduler เรียก `check_signal()` ทุกนาที; ฟังก์ชันจะกรองเหลือรอบ 15 นาทีเมื่อปิด scalping
 - ระบบหยุดสแกนหลัง 19:00 ตามเวลาไทย เป็นกติกาความปลอดภัยเดิม ต้องทบทวนก่อนเปลี่ยน
 
+### TradingView Pine Strategy
+
+- ไฟล์อ้างอิงอยู่ที่ `pinescript.md` และต้องมี strategy เพียงชุดเดียว ไม่วาง indicator เก่าต่อท้าย
+- ใช้ Pine Script v6 และ `strategy()` เพื่อ backtest ไม่ใช้ `indicator()` สำหรับ logic ส่งสัญญาณหลัก
+- สัญญาณต้องผ่าน `barstate.isconfirmed`, HMA direction, RSI, DI/ADX และ session Bangkok ก่อนเข้า
+- Support/resistance ใช้ `ta.pivotlow()`/`ta.pivothigh()` ที่ยืนยันแล้วเท่านั้น เพื่อลด lookahead และ repaint
+- Entry ใช้ close crossover/crossunder พร้อมแท่งยืนยัน ไม่ใช้ค่าระหว่างแท่ง
+- SL ใช้โซน pivot + ATR buffer และบังคับ minimum stop distance; TP คำนวณจาก risk จริงที่ 2R/3.5R/5R
+- ถ้าโซนเป้าหมายถัดไปให้ R:R ต่ำกว่า 1:2 จะไม่เปิด position
+- Trailing stop เริ่มหลัง TP1 และเลื่อนได้เฉพาะทางลดความเสี่ยง
+- Alert ใช้ dynamic JSON จาก `alert()` โดยมี action, symbol, timeframe, entry, sl, tp1, tp2, tp3, RSI และ ATR
+- ก่อนนำไปใช้จริงต้องเปิดใน TradingView, ตรวจ Strategy Tester และสร้าง alert แบบ `Any alert() function call`; ห้ามถือว่า backtest รับประกันผลจริง
+
 ### Known Follow-up Work
 
 1. เพิ่ม unit tests ถาวรสำหรับ `analyze_market()`, BUY/SELL level calculation และ command parser
