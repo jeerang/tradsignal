@@ -509,8 +509,12 @@ async def line_webhook(request: Request):
         if event.get("type") == "message" and event["message"].get("type") == "text":
             user_text = event["message"]["text"].strip().lower()
             reply_token = event.get("replyToken")
+            print(f"[{get_thai_time()}] LINE Command Received: {user_text!r}")
 
-            if user_text in ["ราคา", "price", "gold", "ทอง"]:
+            if user_text in ["ping", "ทดสอบ", "ทดสอบระบบ"]:
+                await reply_line_message(reply_token, f"pong - ระบบ LINE ทำงานปกติ\n🕒 {get_thai_time()}")
+
+            elif user_text in ["ราคา", "price", "gold", "ทอง"]:
                 current_price = fetch_live_price()
                 if current_price:
                     reply_msg = f"💰 ราคาทองคำล่าสุด (XAU/USD): {current_price:.2f}\n🕒 {get_thai_time()}"
@@ -587,7 +591,7 @@ async def line_webhook(request: Request):
                 await reply_line_message(
                     reply_token,
                     "ไม่พบคำสั่งนี้ครับ\n"
-                    "คำสั่งที่ใช้ได้: ราคา, ตรวจสอบ, แนวรับแนวต้าน, กรอบ 1 ชม, โหมดสายซิ่ง"
+                    "คำสั่งที่ใช้ได้: ping, ราคา, ตรวจสอบ, แนวรับแนวต้าน, กรอบ 1 ชม, โหมดสายซิ่ง"
                 )
 
     return {"status": "ok"}
