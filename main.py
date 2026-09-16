@@ -596,6 +596,15 @@ async def line_webhook(request: Request):
 
     return {"status": "ok"}
 
+@app.get("/webhook")
+def webhook_info():
+    return {
+        "status": "ok",
+        "message": "LINE webhook is ready. LINE must call this URL with POST.",
+        "endpoint": "/webhook",
+        "method": "POST",
+    }
+
 @app.get("/")
 def home():
     _, tf_label = get_current_session_tf()
