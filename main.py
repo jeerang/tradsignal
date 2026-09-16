@@ -32,7 +32,7 @@ APP_URL = os.getenv("RENDER_EXTERNAL_URL", "https://tradsignal.onrender.com")
 HEARTBEAT_INTERVAL_MINUTES = max(1, int(os.getenv("HEARTBEAT_INTERVAL_MINUTES", "5")))
 
 BANGKOK_TZ = pytz.timezone("Asia/Bangkok")
-SCALPING_MODE = True
+SCALPING_MODE = False
 
 # Light Strategy State Tracking
 buy_streak = 0
@@ -60,6 +60,9 @@ def get_current_session_tf() -> tuple[str, str]:
     - ช่วงเช้า (ก่อน 12:00): 5 นาที (5min / 5m)
     - ช่วงบ่าย (12:00 เป็นต้นไป): 15 นาที (15min / 15m)
     """
+    if SCALPING_MODE:
+        return "1min", "1m"
+
     current_hour = datetime.now(BANGKOK_TZ).hour
     if current_hour < 12:
         return "5min", "5m"
@@ -140,6 +143,54 @@ def calculate_trade_levels(df: pd.DataFrame, direction: int, entry_price: float,
         "risk": risk,
         "support": support,
         "resistance": resistance,
+    }
+
+def analyze_market() -> dict:
+    """Analyze the latest closed candle and return a gated trade recommendation."""
+    interval, tf_label = get_current_session_tf()
+    df = fetch_gold_data(interval=interval, outputsize=100)
+    if len(df) < 40:
+        raise ValueError("ข้อมูลแท่งเทียนไม่เพียงพอสำหรับวิเคราะห์")
+
+    df['hma'] = calculate_hma(df['close'], period=20)
+    df['rsi'] = calculate_rsi(df['close'], period=14)
+    df['atr'] = calculate_atr(df, period=14)
+    closed_bar = df.iloc[-2]
+    previous_bar = df.iloc[-3]
+    values = [closed_bar['close'], closed_bar['hma'], closed_bar['rsi'], closed_bar['atr']]
+    if not all(np.isfinite(float(value)) for value in values):
+        raise ValueError("indicator ยังไม่พร้อมหรือมีค่า NaN")
+
+    entry = float(closed_bar['close'])
+    hma = float(closed_bar['hma'])
+    previous_hma = float(previous_bar['hma'])
+    rsi = float(closed_bar['rsi'])
+    atr = float(closed_bar['atr'])
+    hma_up = hma > previous_hma
+    hma_down = hma < previous_hma
+
+    if entry > hma and hma_up and rsi >= 50:
+        direction = 1
+        trend = "ขาขึ้น"
+        levels = calculate_trade_levels(df, direction, entry, atr)
+    elif entry < hma and hma_down and rsi <= 50:
+        direction = -1
+        trend = "ขาลง"
+        levels = calculate_trade_levels(df, direction, entry, atr)
+    else:
+        direction = 0
+        trend = "พักตัว/ยังไม่ชัดเจน"
+        levels = None
+
+    return {
+        "direction": direction,
+        "trend": trend,
+        "timeframe": tf_label,
+        "entry": entry,
+        "hma": hma,
+        "rsi": rsi,
+        "atr": atr,
+        "levels": levels,
     }
 
 def fetch_gold_data(interval: str = "5min", outputsize: int = 100) -> pd.DataFrame:
@@ -233,11 +284,13 @@ async def check_signal():
     global active_dir, entry_price, sl_level, tp1_level, tp2_level, tp3_level, entry_atr
     global last_processed_candle_time
 
-    if not SCALPING_MODE:
+    now = datetime.now(BANGKOK_TZ)
+    # โหมดปกติสแกนตามรอบ 15 นาที ส่วน scalping สแกนทุกแท่ง 1 นาที
+    if not SCALPING_MODE and now.minute not in (0, 15, 30, 45):
         return
 
     # กฎระบบ Light: หยุดเทรดหลัง 19:00 น. (เวลาไทย) เพื่อเลี่ยงตลาดสหรัฐฯ และข่าวแรง
-    current_hour = datetime.now(BANGKOK_TZ).hour
+    current_hour = now.hour
     if current_hour >= 19:
         return
 
@@ -469,11 +522,10 @@ def get_1h_range():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler(timezone=BANGKOK_TZ)
-    # ตรวจสอบสัญญาณทุก 15 นาที (0, 15, 30, 45) ที่วินาทีที่ 15
+    # ตรวจทุกนาที; check_signal จะกรองรอบ 15 นาทีเองเมื่อปิด scalping
     scheduler.add_job(
         check_signal,
         'cron',
-        minute='0,15,30,45',
         second='15',
         id='signal-scanner',
         max_instances=1,
@@ -500,6 +552,8 @@ app.router.lifespan_context = lifespan
 
 @app.post("/webhook")
 async def line_webhook(request: Request):
+    global SCALPING_MODE
+
     try:
         data = await request.json()
     except Exception:
@@ -514,6 +568,24 @@ async def line_webhook(request: Request):
 
             if user_text in ["ping", "ทดสอบ", "ทดสอบระบบ"]:
                 await reply_line_message(reply_token, f"pong - ระบบ LINE ทำงานปกติ\n🕒 {get_thai_time()}")
+
+            elif user_text in ["เปิด scalping", "เปิดโหมด scalping", "เปิดโหมดสายซิ่ง", "scalping on"]:
+                SCALPING_MODE = True
+                await reply_line_message(
+                    reply_token,
+                    "🟢 เปิดโหมด Scalping แล้ว\n"
+                    "⏱️ Timeframe: 1m\n"
+                    "ระบบจะตรวจสัญญาณทุก 1 นาที"
+                )
+
+            elif user_text in ["ปิด scalping", "ปิดโหมด scalping", "ปิดโหมดสายซิ่ง", "scalping off"]:
+                SCALPING_MODE = False
+                interval, tf_label = get_current_session_tf()
+                await reply_line_message(
+                    reply_token,
+                    f"🔴 ปิดโหมด Scalping แล้ว\n"
+                    f"⏱️ Timeframe ปกติ: {tf_label} ({interval})"
+                )
 
             elif user_text in ["ราคา", "price", "gold", "ทอง"]:
                 current_price = fetch_live_price()
@@ -544,6 +616,46 @@ async def line_webhook(request: Request):
                 except Exception as e:
                     print(f"[{get_thai_time()}] Status Command Error: {e}")
                     reply_msg = "ระบบยังทำงานอยู่ แต่ดึงข้อมูลราคาชั่วคราวไม่ได้ กรุณาลองใหม่อีกครั้ง"
+                await reply_line_message(reply_token, reply_msg)
+
+            elif user_text in ["วิเคราะห์", "วิเคราะห์ราคา", "วิเคราะห์เทรนด์", "analysis", "analyze"]:
+                try:
+                    analysis = analyze_market()
+                    levels = analysis["levels"]
+                    if analysis["direction"] == 0:
+                        reply_msg = (
+                            f"📊 วิเคราะห์ XAU/USD | TF: {analysis['timeframe']}\n"
+                            f"📈 Trend: {analysis['trend']}\n"
+                            f"💵 ราคา: {analysis['entry']:.2f}\n"
+                            f"📉 HMA: {analysis['hma']:.2f} | RSI: {analysis['rsi']:.1f} | ATR: {analysis['atr']:.2f}\n"
+                            "⏸️ คำแนะนำ: HOLD รอสัญญาณยืนยัน"
+                        )
+                    elif levels is None:
+                        side = "BUY" if analysis["direction"] == 1 else "SELL"
+                        reply_msg = (
+                            f"📊 วิเคราะห์ XAU/USD | TF: {analysis['timeframe']}\n"
+                            f"📈 Trend: {analysis['trend']}\n"
+                            f"💵 ราคา: {analysis['entry']:.2f}\n"
+                            f"⚠️ Bias: {side} แต่ HOLD เพราะพื้นที่ถึงเป้าหมายไม่ผ่าน R:R 1:2\n"
+                            f"📉 HMA: {analysis['hma']:.2f} | RSI: {analysis['rsi']:.1f} | ATR: {analysis['atr']:.2f}"
+                        )
+                    else:
+                        side = "BUY" if analysis["direction"] == 1 else "SELL"
+                        reply_msg = (
+                            f"📊 วิเคราะห์ XAU/USD | TF: {analysis['timeframe']}\n"
+                            f"📈 Trend: {analysis['trend']} | แนะนำ: {side}\n"
+                            f"💵 Entry: {analysis['entry']:.2f}\n"
+                            f"🛑 SL: {levels['sl']:.2f}\n"
+                            f"🎯 TP1: {levels['tp1']:.2f}\n"
+                            f"🎯 TP2: {levels['tp2']:.2f}\n"
+                            f"🎯 TP3: {levels['tp3']:.2f}\n"
+                            f"🟢 Support: {levels['support']:.2f} | 🔴 Resistance: {levels['resistance']:.2f}\n"
+                            f"📐 R:R ขั้นต่ำ 1:2 | RSI: {analysis['rsi']:.1f} | ATR: {analysis['atr']:.2f}\n"
+                            "⚠️ เพื่อการศึกษา ไม่ใช่คำแนะนำการลงทุน"
+                        )
+                except Exception as e:
+                    print(f"[{get_thai_time()}] Analysis Command Error: {e}")
+                    reply_msg = "❌ วิเคราะห์ไม่ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง"
                 await reply_line_message(reply_token, reply_msg)
 
             elif user_text in ["แนวรับแนวต้าน", "pivot"]:
@@ -577,22 +689,16 @@ async def line_webhook(request: Request):
                     reply_msg = "❌ ไม่สามารถดึงกรอบราคา 1 ชั่วโมงได้"
                 await reply_line_message(reply_token, reply_msg)
 
-            elif user_text in ["โหมดสายซิ่ง", "เปิดโหมดสายซิ่ง", "ปิดโหมดสายซิ่ง"]:
-                global SCALPING_MODE
-                if "เปิด" in user_text:
-                    SCALPING_MODE = True
-                elif "ปิด" in user_text:
-                    SCALPING_MODE = False
-                else:
-                    SCALPING_MODE = not SCALPING_MODE
+            elif user_text in ["โหมดสายซิ่ง"]:
                 status_text = "🟢 เปิดใช้งาน (Active)" if SCALPING_MODE else "🔴 ปิดใช้งาน (Paused)"
-                await reply_line_message(reply_token, f"⚙️ การแจ้งเตือนระบบ Light: {status_text}")
+                _, tf_label = get_current_session_tf()
+                await reply_line_message(reply_token, f"⚙️ Scalping: {status_text}\n⏱️ Timeframe: {tf_label}")
 
             else:
                 await reply_line_message(
                     reply_token,
                     "ไม่พบคำสั่งนี้ครับ\n"
-                    "คำสั่งที่ใช้ได้: ping, ราคา, ตรวจสอบ, แนวรับแนวต้าน, กรอบ 1 ชม, โหมดสายซิ่ง"
+                    "คำสั่งที่ใช้ได้: ping, ราคา, วิเคราะห์, ตรวจสอบ, เปิด scalping, ปิด scalping, แนวรับแนวต้าน"
                 )
 
     return {"status": "ok"}
