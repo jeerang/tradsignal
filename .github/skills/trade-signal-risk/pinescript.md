@@ -14,6 +14,7 @@ adxLength = input.int(14, "ADX Length", minval=2, group=groupTrend)
 minimumAdx = input.float(18.0, "Minimum ADX", minval=0, step=0.5, group=groupTrend)
 minimumRsiLong = input.float(52.0, "Minimum RSI for BUY", minval=0, maxval=100, step=0.5, group=groupTrend)
 maximumRsiShort = input.float(48.0, "Maximum RSI for SELL", minval=0, maxval=100, step=0.5, group=groupTrend)
+confirmBars = input.int(3, "Bars Allowed Between Signal 1 and 2", minval=1, maxval=10, group=groupTrend)
 
 groupStructure = "Support and Resistance Zones"
 pivotLeft = input.int(3, "Pivot Left Bars", minval=1, group=groupStructure)
@@ -30,6 +31,7 @@ tp2R = input.float(3.5, "TP2 (R)", minval=1.0, step=0.25, group=groupRisk)
 tp3R = input.float(5.0, "TP3 (R)", minval=1.5, step=0.25, group=groupRisk)
 useTrailing = input.bool(true, "Use Trailing Stop After TP1", group=groupRisk)
 trailingAtr = input.float(1.0, "Trailing Distance (ATR)", minval=0.25, step=0.25, group=groupRisk)
+boxExtendBars = input.int(20, "Entry/TP/SL Box Width (Bars)", minval=5, maxval=100, group=groupRisk)
 
 groupSession = "Session Filter"
 useSessionFilter = input.bool(true, "Use Bangkok Session Filter", group=groupSession)
@@ -67,8 +69,39 @@ shortTargetRoom = close - nz(lastSupport, close - shortRisk * minimumRewardRisk)
 longRiskOk = longRisk >= atrValue * minimumStopAtr and longTargetRoom >= longRisk * minimumRewardRisk
 shortRiskOk = shortRisk >= atrValue * minimumStopAtr and shortTargetRoom >= shortRisk * minimumRewardRisk
 
-longSignal = confirmedBar and sessionAllowed and strategy.position_size == 0 and trendUp and longConfirmation and trendStrengthOk and longRiskOk
-shortSignal = confirmedBar and sessionAllowed and strategy.position_size == 0 and trendDown and shortConfirmation and trendStrengthOk and shortRiskOk
+buy1Signal = confirmedBar and sessionAllowed and strategy.position_size == 0 and trendUp and longConfirmation and trendStrengthOk
+sell1Signal = confirmedBar and sessionAllowed and strategy.position_size == 0 and trendDown and shortConfirmation and trendStrengthOk
+
+var int pendingDirection = 0
+var int pendingBar = na
+var float pendingEntry = na
+var float pendingStop = na
+var float pendingRisk = na
+
+if buy1Signal
+    pendingDirection := 1
+    pendingBar := bar_index
+    pendingEntry := close
+    pendingStop := longStop
+    pendingRisk := longRisk
+
+if sell1Signal
+    pendingDirection := -1
+    pendingBar := bar_index
+    pendingEntry := close
+    pendingStop := shortStop
+    pendingRisk := shortRisk
+
+pendingIsFresh = pendingDirection != 0 and not na(pendingBar) and bar_index - pendingBar <= confirmBars
+buy2Signal = confirmedBar and pendingIsFresh and pendingDirection == 1 and strategy.position_size == 0 and trendUp and close > pendingEntry and close > open and rsiValue >= minimumRsiLong and longRiskOk
+sell2Signal = confirmedBar and pendingIsFresh and pendingDirection == -1 and strategy.position_size == 0 and trendDown and close < pendingEntry and close < open and rsiValue <= maximumRsiShort and shortRiskOk
+
+if not pendingIsFresh
+    pendingDirection := 0
+    pendingBar := na
+    pendingEntry := na
+    pendingStop := na
+    pendingRisk := na
 
 var float entryPrice = na
 var float stopPrice = na
@@ -79,11 +112,16 @@ var float target3 = na
 var float entryAtr = na
 var int tradeDirection = 0
 var bool tp1Reached = false
+var box riskBox = na
+var box rewardBox = na
+var label entryLabel = na
+var label stopLabel = na
+var label targetLabel = na
 
-if longSignal
+if buy2Signal
     entryPrice := close
-    stopPrice := longStop
-    riskDistance := longRisk
+    stopPrice := math.min(pendingStop, close - atrValue * minimumStopAtr)
+    riskDistance := entryPrice - stopPrice
     target1 := entryPrice + riskDistance * tp1R
     target2 := entryPrice + riskDistance * tp2R
     target3 := entryPrice + riskDistance * tp3R
@@ -91,11 +129,23 @@ if longSignal
     tradeDirection := 1
     tp1Reached := false
     strategy.entry("BUY", strategy.long)
+    box.delete(riskBox)
+    box.delete(rewardBox)
+    label.delete(entryLabel)
+    label.delete(stopLabel)
+    label.delete(targetLabel)
+    riskBox := box.new(bar_index, entryPrice, bar_index + boxExtendBars, stopPrice, bgcolor=color.new(color.red, 86), border_color=color.new(color.red, 35))
+    rewardBox := box.new(bar_index, target3, bar_index + boxExtendBars, entryPrice, bgcolor=color.new(color.green, 88), border_color=color.new(color.green, 35))
+    entryLabel := label.new(bar_index + boxExtendBars, entryPrice, "Entry " + str.tostring(entryPrice, "#.##"), style=label.style_label_left, color=color.yellow, textcolor=color.black)
+    stopLabel := label.new(bar_index + boxExtendBars, stopPrice, "SL " + str.tostring(stopPrice, "#.##"), style=label.style_label_left, color=color.red, textcolor=color.white)
+    targetLabel := label.new(bar_index + boxExtendBars, target3, "TP3 " + str.tostring(target3, "#.##"), style=label.style_label_left, color=color.green, textcolor=color.white)
+    pendingDirection := 0
+    pendingBar := na
 
-if shortSignal
+if sell2Signal
     entryPrice := close
-    stopPrice := shortStop
-    riskDistance := shortRisk
+    stopPrice := math.max(pendingStop, close + atrValue * minimumStopAtr)
+    riskDistance := stopPrice - entryPrice
     target1 := entryPrice - riskDistance * tp1R
     target2 := entryPrice - riskDistance * tp2R
     target3 := entryPrice - riskDistance * tp3R
@@ -103,12 +153,29 @@ if shortSignal
     tradeDirection := -1
     tp1Reached := false
     strategy.entry("SELL", strategy.short)
+    box.delete(riskBox)
+    box.delete(rewardBox)
+    label.delete(entryLabel)
+    label.delete(stopLabel)
+    label.delete(targetLabel)
+    riskBox := box.new(bar_index, stopPrice, bar_index + boxExtendBars, entryPrice, bgcolor=color.new(color.red, 86), border_color=color.new(color.red, 35))
+    rewardBox := box.new(bar_index, entryPrice, bar_index + boxExtendBars, target3, bgcolor=color.new(color.green, 88), border_color=color.new(color.green, 35))
+    entryLabel := label.new(bar_index + boxExtendBars, entryPrice, "Entry " + str.tostring(entryPrice, "#.##"), style=label.style_label_left, color=color.yellow, textcolor=color.black)
+    stopLabel := label.new(bar_index + boxExtendBars, stopPrice, "SL " + str.tostring(stopPrice, "#.##"), style=label.style_label_left, color=color.red, textcolor=color.white)
+    targetLabel := label.new(bar_index + boxExtendBars, target3, "TP3 " + str.tostring(target3, "#.##"), style=label.style_label_left, color=color.green, textcolor=color.white)
+    pendingDirection := 0
+    pendingBar := na
 
 if strategy.position_size > 0 and tradeDirection == 1
     if high >= target1
         tp1Reached := true
     if useTrailing and tp1Reached
         stopPrice := math.max(stopPrice, high - entryAtr * trailingAtr)
+    box.set_bottom(riskBox, stopPrice)
+    box.set_right(riskBox, bar_index + boxExtendBars)
+    box.set_right(rewardBox, bar_index + boxExtendBars)
+    label.set_xy(stopLabel, bar_index + boxExtendBars, stopPrice)
+    label.set_text(stopLabel, "SL " + str.tostring(stopPrice, "#.##"))
     strategy.exit("BUY-TP1", "BUY", limit=target1, stop=stopPrice, qty_percent=33)
     strategy.exit("BUY-TP2", "BUY", limit=target2, stop=stopPrice, qty_percent=33)
     strategy.exit("BUY-TP3", "BUY", limit=target3, stop=stopPrice, qty_percent=34)
@@ -118,6 +185,11 @@ if strategy.position_size < 0 and tradeDirection == -1
         tp1Reached := true
     if useTrailing and tp1Reached
         stopPrice := math.min(stopPrice, low + entryAtr * trailingAtr)
+    box.set_top(riskBox, stopPrice)
+    box.set_right(riskBox, bar_index + boxExtendBars)
+    box.set_right(rewardBox, bar_index + boxExtendBars)
+    label.set_xy(stopLabel, bar_index + boxExtendBars, stopPrice)
+    label.set_text(stopLabel, "SL " + str.tostring(stopPrice, "#.##"))
     strategy.exit("SELL-TP1", "SELL", limit=target1, stop=stopPrice, qty_percent=33)
     strategy.exit("SELL-TP2", "SELL", limit=target2, stop=stopPrice, qty_percent=33)
     strategy.exit("SELL-TP3", "SELL", limit=target3, stop=stopPrice, qty_percent=34)
@@ -140,15 +212,19 @@ plot(stopPrice, "SL", color=color.red, style=plot.style_linebr, linewidth=2)
 plot(target1, "TP1", color=color.teal, style=plot.style_linebr)
 plot(target2, "TP2", color=color.aqua, style=plot.style_linebr)
 plot(target3, "TP3", color=color.green, style=plot.style_linebr)
-plotshape(longSignal, title="BUY", style=shape.labelup, location=location.belowbar, color=color.green, text="BUY", textcolor=color.white)
-plotshape(shortSignal, title="SELL", style=shape.labeldown, location=location.abovebar, color=color.red, text="SELL", textcolor=color.white)
+plotshape(buy1Signal, title="BUY 1", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 45), text="BUY 1", textcolor=color.white, size=size.tiny)
+plotshape(sell1Signal, title="SELL 1", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 45), text="SELL 1", textcolor=color.white, size=size.tiny)
+plotshape(buy2Signal, title="BUY 2", style=shape.labelup, location=location.belowbar, color=color.green, text="BUY 2", textcolor=color.white, size=size.small)
+plotshape(sell2Signal, title="SELL 2", style=shape.labeldown, location=location.abovebar, color=color.red, text="SELL 2", textcolor=color.white, size=size.small)
 
 alertBuy = '{"action":"BUY","symbol":"' + syminfo.ticker + '","timeframe":"' + timeframe.period + '","entry":' + str.tostring(entryPrice, "#.##") + ',"sl":' + str.tostring(stopPrice, "#.##") + ',"tp1":' + str.tostring(target1, "#.##") + ',"tp2":' + str.tostring(target2, "#.##") + ',"tp3":' + str.tostring(target3, "#.##") + ',"rsi":' + str.tostring(rsiValue, "#.#") + ',"atr":' + str.tostring(atrValue, "#.##") + '}'
 alertSell = '{"action":"SELL","symbol":"' + syminfo.ticker + '","timeframe":"' + timeframe.period + '","entry":' + str.tostring(entryPrice, "#.##") + ',"sl":' + str.tostring(stopPrice, "#.##") + ',"tp1":' + str.tostring(target1, "#.##") + ',"tp2":' + str.tostring(target2, "#.##") + ',"tp3":' + str.tostring(target3, "#.##") + ',"rsi":' + str.tostring(rsiValue, "#.#") + ',"atr":' + str.tostring(atrValue, "#.##") + '}'
-if longSignal
+if buy2Signal
     alert(alertBuy, alert.freq_once_per_bar_close)
-if shortSignal
+if sell2Signal
     alert(alertSell, alert.freq_once_per_bar_close)
 
-alertcondition(longSignal, "BUY confirmed", "Confirmed BUY: use the dynamic JSON alert for Entry/SL/TP levels")
-alertcondition(shortSignal, "SELL confirmed", "Confirmed SELL: use the dynamic JSON alert for Entry/SL/TP levels")
+alertcondition(buy1Signal, "BUY 1 watch", "BUY 1 watch signal: wait for BUY 2 confirmation")
+alertcondition(sell1Signal, "SELL 1 watch", "SELL 1 watch signal: wait for SELL 2 confirmation")
+alertcondition(buy2Signal, "BUY 2 confirmed", "BUY 2 confirmed: use the dynamic JSON alert for Entry/SL/TP levels")
+alertcondition(sell2Signal, "SELL 2 confirmed", "SELL 2 confirmed: use the dynamic JSON alert for Entry/SL/TP levels")
