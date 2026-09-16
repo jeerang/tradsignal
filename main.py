@@ -194,6 +194,9 @@ def analyze_market() -> dict:
     }
 
 def fetch_gold_data(interval: str = "5min", outputsize: int = 100) -> pd.DataFrame:
+    if not TWELVE_DATA_API_KEY:
+        raise ValueError("TWELVE_DATA_API_KEY is not configured")
+
     url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval={interval}&outputsize={outputsize}&apikey={TWELVE_DATA_API_KEY}"
     with httpx.Client(timeout=10.0) as client:
         res = client.get(url)
@@ -209,6 +212,10 @@ def fetch_gold_data(interval: str = "5min", outputsize: int = 100) -> pd.DataFra
     return df
 
 def fetch_live_price():
+    if not TWELVE_DATA_API_KEY:
+        print(f"[{get_thai_time()}] Fetch live price skipped: TWELVE_DATA_API_KEY is missing")
+        return None
+
     try:
         url = f"https://api.twelvedata.com/price?symbol=XAU/USD&apikey={TWELVE_DATA_API_KEY}"
         with httpx.Client(timeout=8.0) as client:
@@ -562,7 +569,7 @@ async def line_webhook(request: Request):
     events = data.get("events", [])
     for event in events:
         if event.get("type") == "message" and event["message"].get("type") == "text":
-            user_text = event["message"]["text"].strip().lower()
+            user_text = " ".join(event["message"]["text"].strip().lower().split())
             reply_token = event.get("replyToken")
             print(f"[{get_thai_time()}] LINE Command Received: {user_text!r}")
 
@@ -655,7 +662,10 @@ async def line_webhook(request: Request):
                         )
                 except Exception as e:
                     print(f"[{get_thai_time()}] Analysis Command Error: {e}")
-                    reply_msg = "❌ วิเคราะห์ไม่ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง"
+                    if not TWELVE_DATA_API_KEY:
+                        reply_msg = "❌ ยังไม่ได้ตั้งค่า TWELVE_DATA_API_KEY ใน Render กรุณาเพิ่ม API key ของ Twelve Data"
+                    else:
+                        reply_msg = "❌ วิเคราะห์ไม่ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง"
                 await reply_line_message(reply_token, reply_msg)
 
             elif user_text in ["แนวรับแนวต้าน", "pivot"]:
