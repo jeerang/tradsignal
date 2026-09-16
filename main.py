@@ -192,6 +192,10 @@ async def send_line_message(text: str):
         print(f"[{get_thai_time()}] Network Error in send_line_message: {e}")
 
 async def reply_line_message(reply_token: str, text: str):
+    if not reply_token:
+        print(f"[{get_thai_time()}] LINE Reply skipped: missing reply token")
+        return False
+
     url = "https://api.line.me/v2/bot/message/reply"
     headers = {
         "Content-Type": "application/json",
@@ -203,8 +207,12 @@ async def reply_line_message(reply_token: str, text: str):
             res = await client.post(url, json=payload, headers=headers)
             if res.status_code != 200:
                 print(f"[{get_thai_time()}] LINE Reply Error: {res.status_code} - {res.text}")
+                return False
+            print(f"[{get_thai_time()}] LINE Reply Sent: {res.status_code}")
+            return True
     except Exception as e:
         print(f"[{get_thai_time()}] Network Error in reply_line_message: {e}")
+        return False
 
 async def keep_alive():
     """ยิง Ping เข้าหาตัวเองทุก 10 นาทีเพื่อป้องกัน Render Sleep Mode"""
@@ -511,22 +519,26 @@ async def line_webhook(request: Request):
                 await reply_line_message(reply_token, reply_msg)
 
             elif user_text in ["สถานะ", "status", "ตรวจสอบ", "ตรวจสถานะ", "เช็ค", "check"]:
-                _, tf_label = get_current_session_tf()
-                interval, _ = get_current_session_tf()
-                df = fetch_gold_data(interval=interval, outputsize=60)
-                df['hma'] = calculate_hma(df['close'], period=20)
-                df['rsi'] = calculate_rsi(df['close'], period=14)
-                last_bar = df.iloc[-1]
-                trend = "🟢 Bullish Zone" if last_bar['close'] > last_bar['hma'] else "🔴 Bearish Zone"
-                reply_msg = (
-                    f"📊 สถานะระบบ Light (TF: {tf_label})\n"
-                    f"═════════════════\n"
-                    f"💵 ราคา: {last_bar['close']:.2f}\n"
-                    f"📈 แนวโน้ม: {trend}\n"
-                    f"📉 RSI: {last_bar['rsi']:.1f}\n"
-                    f"🎯 Buy Streak: {buy_streak} | Sell Streak: {sell_streak}\n"
-                    f"💼 Active Trade: {'BUY' if active_dir == 1 else 'SELL' if active_dir == -1 else 'NONE'}"
-                )
+                try:
+                    _, tf_label = get_current_session_tf()
+                    interval, _ = get_current_session_tf()
+                    df = fetch_gold_data(interval=interval, outputsize=60)
+                    df['hma'] = calculate_hma(df['close'], period=20)
+                    df['rsi'] = calculate_rsi(df['close'], period=14)
+                    last_bar = df.iloc[-1]
+                    trend = "🟢 Bullish Zone" if last_bar['close'] > last_bar['hma'] else "🔴 Bearish Zone"
+                    reply_msg = (
+                        f"📊 สถานะระบบ Light (TF: {tf_label})\n"
+                        f"═════════════════\n"
+                        f"💵 ราคา: {last_bar['close']:.2f}\n"
+                        f"📈 แนวโน้ม: {trend}\n"
+                        f"📉 RSI: {last_bar['rsi']:.1f}\n"
+                        f"🎯 Buy Streak: {buy_streak} | Sell Streak: {sell_streak}\n"
+                        f"💼 Active Trade: {'BUY' if active_dir == 1 else 'SELL' if active_dir == -1 else 'NONE'}"
+                    )
+                except Exception as e:
+                    print(f"[{get_thai_time()}] Status Command Error: {e}")
+                    reply_msg = "ระบบยังทำงานอยู่ แต่ดึงข้อมูลราคาชั่วคราวไม่ได้ กรุณาลองใหม่อีกครั้ง"
                 await reply_line_message(reply_token, reply_msg)
 
             elif user_text in ["แนวรับแนวต้าน", "pivot"]:
