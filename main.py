@@ -21,9 +21,10 @@ if sys.platform == "win32":
 # ==========================================
 # 1. CONFIGURATION & CONSTANTS
 # ==========================================
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv(
-    "LINE_CHANNEL_ACCESS_TOKEN",
-    ""
+LINE_CHANNEL_ACCESS_TOKEN = (
+    os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+    or os.getenv("LINE_ACCESS_TOKEN")
+    or ""
 )
 TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "")
 LINE_USER_ID = os.getenv("LINE_USER_ID", "")
